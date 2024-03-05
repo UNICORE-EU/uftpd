@@ -1,0 +1,19 @@
+name: Build UFTPD
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: UFTPD build
+      run: |
+        python -m pip install --upgrade pip
+        python -m pip install -r requirements.txt
+        make test
