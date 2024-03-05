@@ -1,7 +1,7 @@
-# PyUFTPD
+# UFTPD
 
 This repository contains the source code for the
-UFTPD server, implemented in Python 3
+UFTPD server, implemented in Python.
 
 UFTPD is the file server of the full UFTP system. For using it,
 you'll also need an Auth server (or UNICORE/X) which deals
