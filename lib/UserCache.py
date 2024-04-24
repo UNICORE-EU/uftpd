@@ -8,10 +8,11 @@ import time
 import pwd
 import grp
 
+from Log import Logger
 import Utils
 
 class UserCache(object):
-    def __init__(self, cache_ttl, LOG, use_id_to_resolve_groups = False):
+    def __init__(self, cache_ttl, LOG: Logger, use_id_to_resolve_groups = False):
         self.cache_ttl = cache_ttl
         self.LOG = LOG
         self.all_groups = {}

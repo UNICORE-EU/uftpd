@@ -2,8 +2,8 @@
 Interface to PAM functions via ctypes
 """
 import ctypes
-import os
-import sys
+
+from Log import Logger
 
 LIBC = "libc.so.6"
 LIBPAM = "libpam.so.0"
@@ -30,7 +30,7 @@ class pam_conv(ctypes.Structure):
     _fields_ = [("conv", pam_conv_conv_fct), ("appdata_ptr", ctypes.c_void_p)]
 
 class PAM(object):
-    def __init__(self, LOG, module_name=PAM_MODULE):
+    def __init__(self, LOG: Logger, module_name=PAM_MODULE):
         self.LOG = LOG
         self.MODULE = ctypes.c_char_p(bytes(module_name, encoding="ascii"))
         libc = ctypes.CDLL(LIBC)

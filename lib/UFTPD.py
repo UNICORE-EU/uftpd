@@ -12,6 +12,7 @@ import time
 import BecomeUser, FTPHandler, Server, UserInfoHandler, Utils
 from Connector import Connector
 from Log import Logger
+from PAM import PAM_MODULE
 
 #
 # the UFTPD version
@@ -49,7 +50,7 @@ def setup_config(config: dict):
     config['LOG_SYSLOG'] = os.getenv("LOG_SYSLOG", "true").lower() in [ "true", "yes", "1" ]
     config['DISABLE_IP_CHECK'] = os.getenv("DISABLE_IP_CHECK", "false").lower() in [ "true", "yes", "1" ]
     config['PORTRANGE'] = configure_portrange()
-    config['PAM_MODULE'] = os.getenv("PAM_MODULE", "unicore-uftpd")
+    config['PAM_MODULE'] = os.getenv("PAM_MODULE", PAM_MODULE)
     config['OPEN_USER_SESSIONS'] = os.getenv("OPEN_USER_SESSIONS", "0").lower() in ["1", "true"]
 
 def configure_portrange():
@@ -92,7 +93,7 @@ def init_functions():
         "uftp-transfer-request": add_job,
     }
 
-def ping(request, connector: Connector, config: dict, LOG: Logger):
+def ping(_, connector: Connector, config: dict, LOG: Logger):
     response = """Version: %s
 ListenPort: %s
 ListenAddress: %s
@@ -106,13 +107,11 @@ MaxSessionsPerClient: %s
     if config['ADVERTISE_HOST'] is not None:
         response += "AdvertiseAddress: %s" % config['ADVERTISE_HOST']
     connector.write_message(response)
-    connector.close()
 
 def get_user_info(request: dict, connector: Connector, config: dict, LOG: Logger):
     user = request['user'].strip()
     if user=="root":
         connector.write_message("500 Not allowed")
-        connector.close()
         return
     user_cache = config['uftpd.user_cache']
     home = user_cache.get_home_4user(user)
@@ -121,7 +120,6 @@ def get_user_info(request: dict, connector: Connector, config: dict, LOG: Logger
         return
     else:
         connector.write_message("500 No such user or no home directory found")
-        connector.close()
 
 def add_job(request: dict, connector: Connector, config: dict, LOG: Logger):
     try:
@@ -129,7 +127,6 @@ def add_job(request: dict, connector: Connector, config: dict, LOG: Logger):
         connector.write_message("OK::%s" % config['SERVER_PORT'])
     except Exception as e:
         connector.write_message("ERROR::%s" % str(e))
-    connector.close()
 
 def _do_add_job(request: dict, config: dict, LOG: Logger):
     user = request['user']
@@ -206,6 +203,7 @@ def process(cmd_server, config: dict, LOG: Logger):
     functions = init_functions()
 
     while True:
+        connector = None
         try:
             connector = Server.accept_command(cmd_server, config, LOG)
             msg = connector.read_request()
@@ -214,12 +212,13 @@ def process(cmd_server, config: dict, LOG: Logger):
             func = functions.get(request_type, None)
             if not func:
                 connector.write_message("ERROR::Unsupported request type '%s'" % request_type)
-                connector.close()
             else:
                 func(request, connector, config, LOG)
         except Exception as e:
             LOG.error("Error in command loop: %s" % e)
-            connector.close()
+        finally:
+            if connector:
+                connector.close()
 
 def main():
     """

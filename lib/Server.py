@@ -26,6 +26,7 @@ def configure_socket(sock: socket.socket):
         TCP_KEEPALIVE = 0x10
         sock.setsockopt(socket.IPPROTO_TCP, TCP_KEEPALIVE, interval)
     if sys.platform.startswith("linux"):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.SO_KEEPALIVE, 1)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPIDLE, after_idle)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPINTVL, interval)
         sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_KEEPCNT, max_fails)
@@ -212,6 +213,7 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
             if expected_client is not None:
                 if client_host!=expected_client:
                     raise Exception("Rejecting connection from unexpected host %s - expected %s" % (client_host, expected_client))
+            configure_socket(client)
             return Connector(client, LOG, conntype="DATA", binary_mode=True)
         except EnvironmentError as e:
             LOG.error(e)

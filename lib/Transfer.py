@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 from ftplib import FTP
+from typing import List
 import os, socket, sys, time
 
 from Connector import Connector
@@ -16,7 +17,7 @@ class Transfer:
     Uses ftplib to open the session and interact with the UFTPD server
     """
 
-    def __init__(self, host:str, port: int, password: str, LOG: Logger, username: str):
+    def __init__(self, host: str, port: int, password: str, LOG: Logger, username: str):
         self.host = host
         self.port= port
         self.password = password
@@ -37,7 +38,7 @@ class Transfer:
        self.ftp.login("anonymous", self.password)
        self.LOG.info("Connected to %s:%s" % (self.host, self.port))
 
-    def send_file(self, local_file, remote_file, offset, num_bytes):
+    def send_file(self, local_file: str, remote_file: str, offset: int, num_bytes: int):
         """ send a local file to the remote server """
         with open(local_file, "rb") as f:
             with self.get_writer(remote_file, offset, num_bytes) as target:
@@ -46,7 +47,7 @@ class Transfer:
                 total, duration = self._copy_data(f, target, num_bytes)
                 self.log_usage(True, total, duration)
 
-    def receive_file(self, remote_file, local_file, offset, num_bytes):
+    def receive_file(self, remote_file: str, local_file: str, offset: int, num_bytes: int):
         """ gets a remote file and stores to the given local file"""
         with open(local_file, "wb") as f:
             with self.get_reader(remote_file, offset, num_bytes) as source:
@@ -186,7 +187,7 @@ class Transfer:
                 # adjust number of connections in case server has limited them
                 self.number_of_streams = int(resp.split(" ")[2])
 
-    def _open_data_connections(self) -> list[Connector]:
+    def _open_data_connections(self) -> List[Connector]:
         self._negotiate_streams()
         connectors = []
         for _ in range(0, self.number_of_streams):
@@ -214,8 +215,8 @@ def launch_transfer(remote_file_spec, local_file: str, mode: str, LOG: Logger, u
     transfer.algo = algo
     transfer.compress = compress
     transfer.number_of_streams = number_of_streams
-    transfer.connect()
     try:
+        transfer.connect()
         if mode=="send":
             transfer.send_file(local_file, remote_file, offset, length)
         else:

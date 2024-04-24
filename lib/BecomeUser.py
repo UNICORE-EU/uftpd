@@ -2,11 +2,10 @@
 
 import os
 
-import Log
+from Log import Logger
 import UserCache
 
-
-def initialize(config, LOG: Log):
+def initialize(config: dict, LOG: Logger):
     """ Setup the user cache."""
     (_, euid, _) = os.getresuid()
     config['uftpd.effective_uid'] = euid
@@ -37,7 +36,7 @@ def initialize(config, LOG: Log):
 
 # if requested group is the primary group or if checking is disabled return OK
 # otherwise check that this user is a member of the requested group
-def check_membership(group, group_gid, user, config):
+def check_membership(group, group_gid, user, config: dict):
     enforce_os_gids = config.get('uftpd.enforce_os_gids', True)
     user_cache = config['uftpd.user_cache']
     if enforce_os_gids and group_gid != user_cache.get_gid_4user(user):
@@ -47,7 +46,7 @@ def check_membership(group, group_gid, user, config):
     return True
 
 
-def get_primary_group(primary, user, user_cache, fail_on_invalid_gids, config, LOG: Log):
+def get_primary_group(primary, user, user_cache, fail_on_invalid_gids, config: dict, LOG: Logger):
     if primary == "DEFAULT_GID":
         new_gid = user_cache.get_gid_4user(user)
     else:
@@ -121,7 +120,7 @@ def get_supplementary_groups(requested_groups, primary, user, config, LOG):
     return gids
 
 
-def become_user(user, requested_groups, config, LOG: Log):
+def become_user(user, requested_groups, config: dict, LOG: Logger):
     """
     Change the process' identity (real and effective) to a user's (if
     process was started with sufficient privileges to allow this,

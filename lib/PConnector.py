@@ -1,4 +1,5 @@
 from struct import pack, unpack
+from typing import List
 
 from Connector import Connector
 from Log import Logger
@@ -12,7 +13,7 @@ class PConnector(object):
         Thomas Jefferson National Accelerator Facility
     """
 
-    def __init__(self, connectors: list[Connector], LOG: Logger, key=None, algo="BLOWFISH", compress=False):
+    def __init__(self, connectors: List[Connector], LOG: Logger, key=None, algo: str="BLOWFISH", compress=False):
         self._connectors = connectors
         self._inputs = []
         self._outputs = []

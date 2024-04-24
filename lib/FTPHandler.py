@@ -1,9 +1,10 @@
 import os
 import threading
 
-import BecomeUser, Connector, Log, PAM, Protocol, Server, Session
+from Log import Logger
+import BecomeUser, Connector, PAM, Protocol, Server, Session
 
-def create_session(connector: Connector, config, LOG: Log, ftp_server, cmd_server):
+def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, cmd_server):
     try:
         LOG.debug("Processing %s" % connector.info())
         job = Protocol.establish_connection(connector, config)
@@ -55,7 +56,7 @@ def create_session(connector: Connector, config, LOG: Log, ftp_server, cmd_serve
     # child - cleanup, drop privileges and launch session processing
     #
     pam_enabled =  config.get('OPEN_USER_SESSIONS', False)
-    pam_module = config.get('PAM_MODULE', "unicore-uftpd")
+    pam_module = config.get('PAM_MODULE', PAM.PAM_MODULE)
     try:
         LOG.reinit()
         ftp_server.close()
@@ -85,7 +86,7 @@ def create_session(connector: Connector, config, LOG: Log, ftp_server, cmd_serve
         pam_session.close_session()
     os._exit(0)
 
-def ftp_listener(ftp_server, config, LOG: Log.Logger, cmd_server):
+def ftp_listener(ftp_server, config: dict, LOG: Logger, cmd_server):
     LOG.info("Started FTP listener thread.")
     while True:
         try:
