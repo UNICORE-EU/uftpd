@@ -5,10 +5,11 @@ Changelog for the PyUFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
-UFTPD 3.4.1 (released Apr dd, 2024)
+UFTPD 3.4.1 (released Apr 29, 2024)
 -----------------------------------
  - fix: enable SO_KEEPALIVE on data connections as well
  - fix: UFTPD should still run on (old) Python 3.6.8
+ - improvement: SSL ciphers can be configured in uftpd-ssl.conf variable "SSL_CIPHERS"
  - minor code cleanup
 
 UFTPD 3.4.0 (released Mar 05, 2024)

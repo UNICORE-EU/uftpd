@@ -17,6 +17,11 @@ def setup_ssl(config: dict, socket, LOG: Logger, server_mode=False) -> ssl.SSLSo
         protocol_version = ssl.PROTOCOL_TLSv1_2
         LOG.info("Fallback to SSL protocol TLS v1.2 - consider updating your OS or python3 version")
     context = ssl.SSLContext(protocol_version)
+    context.options |= ssl.OP_NO_TLSv1
+    context.options |= ssl.OP_NO_TLSv1_1
+    if config.get("SSL_CIPHERS", None) is not None:
+        LOG.info("Setting SSL ciphers: ", config['SSL_CIPHERS'])
+        context.set_ciphers(config["SSL_CIPHERS"])
     context.verify_mode = ssl.CERT_REQUIRED
     context.check_hostname = False
     context.load_default_certs(purpose=ssl.Purpose.SERVER_AUTH)
