@@ -20,7 +20,7 @@ def setup_ssl(config: dict, socket, LOG: Logger, server_mode=False) -> ssl.SSLSo
     context.options |= ssl.OP_NO_TLSv1
     context.options |= ssl.OP_NO_TLSv1_1
     if config.get("SSL_CIPHERS", None) is not None:
-        LOG.info("Setting SSL ciphers: ", config['SSL_CIPHERS'])
+        LOG.info("Setting SSL ciphers: %s" % config['SSL_CIPHERS'])
         context.set_ciphers(config["SSL_CIPHERS"])
     context.verify_mode = ssl.CERT_REQUIRED
     context.check_hostname = False
