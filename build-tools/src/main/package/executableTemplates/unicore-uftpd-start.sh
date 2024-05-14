@@ -34,11 +34,11 @@ export PYTHONPATH=$UFTPD_LIB
 # go
 #
 
-if [ -e "$SETPRIV" ]
+if [ "$SETPRIV" != "" ] && [ -e "$SETPRIV" ]
  then
-  export USER_ID=$(id -u $USER)
-  export GROUP_ID=$(id -g $USER)
-  echo "Starting as $USER ($USER_ID:$GROUP_ID) with capabilites: $CAPS"
+  export USER_ID=$(id -u $USER_NAME)
+  export GROUP_ID=$(id -g $USER_NAME)
+  echo "Starting as $USER_NAME ($USER_ID:$GROUP_ID) with capabilites: $CAPS"
   $SETPRIV --ambient-caps="$CAPS" --inh-caps="$CAPS" --reuid $USER_ID --regid $GROUP_ID --clear-groups  $PYTHON $UFTPD_LIB/UFTPD.py & echo $! > ${UFTPD_PID}
  else
   $PYTHON $UFTPD_LIB/UFTPD.py & echo $! > ${UFTPD_PID}

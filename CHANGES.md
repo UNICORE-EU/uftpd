@@ -5,6 +5,11 @@ Changelog for the PyUFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
+UFTPD 3.4.2 (released MMM dd, 2024)
+-----------------------------------
+ - fix: avoid error messages in log due to PAM close_session call
+ - fix: use USER_NAME instead of USER in conf and start script
+
 UFTPD 3.4.1 (released Apr 29, 2024)
 -----------------------------------
  - fix: enable SO_KEEPALIVE on data connections as well

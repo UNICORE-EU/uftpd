@@ -73,7 +73,5 @@ class PAM(object):
         self.check_pam_error("pam_open_session", err, self.libpam.pam_strerror(self.pamh, err))
 
     def close_session(self):
-        err = self.libpam.pam_close_session(self.pamh, 0)
-        self.check_pam_error("pam_close_session", err, self.libpam.pam_strerror(self.pamh, err))
         err = self.libpam.pam_end(self.pamh, 0)
         self.check_pam_error("pam_end", err, self.libpam.pam_strerror(self.pamh, err))
