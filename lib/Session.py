@@ -420,7 +420,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.exists():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
+            self.control.write_message("550 Directory/file does not exist or cannot be accessed!")
             return Session.ACTION_CONTINUE
         self.control.write_message("250- Listing %s" % path)
         self.control.write_message(" %s" % fi.as_mlist())

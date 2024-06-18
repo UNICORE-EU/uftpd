@@ -9,6 +9,7 @@ UFTPD 3.4.2 (released MMM dd, 2024)
 -----------------------------------
  - fix: avoid error messages in log due to PAM close_session call
  - fix: use USER_NAME instead of USER in conf and start script
+ - fix: MLST should return error code 550 if file does not exist
 
 UFTPD 3.4.1 (released Apr 29, 2024)
 -----------------------------------
