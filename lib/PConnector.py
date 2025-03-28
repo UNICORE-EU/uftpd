@@ -53,6 +53,7 @@ class PConnector(object):
                              +data[offset:offset+chunk_len], out)
             i += 1
         self.seq += 1
+        return len(data)
 
     def _write_block(self, data, _out):
         """ Write all the data to out """

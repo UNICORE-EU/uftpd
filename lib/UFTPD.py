@@ -36,6 +36,7 @@ def setup_config(config: dict):
     config['CMD_PORT'] = int(os.getenv("CMD_PORT", "64435"))
     config['SERVER_HOST'] = os.getenv("SERVER_HOST", "localhost")
     config['SERVER_PORT'] = int(os.getenv("SERVER_PORT", "64434"))
+    config['DISABLE_IPv6'] = _get_bool("UFTP_6", "0")
     config['ADVERTISE_HOST'] = os.getenv("ADVERTISE_HOST", None)
     config['SSL_CONF'] = os.getenv("SSL_CONF", None)
     config['ACL'] = os.getenv("ACL", "conf/uftpd.acl")
@@ -44,14 +45,18 @@ def setup_config(config: dict):
     config['MAX_CONNECTIONS'] = int(os.getenv("MAX_CONNECTIONS", "16"))
     config['UFTP_KEYFILES'] = os.getenv("UFTP_KEYFILES", ".ssh/authorized_keys:.uftp/authorized_keys").split(":")
     config['UFTP_NOWRITE'] = os.getenv("UFTP_NOWRITE", ".ssh/authorized_keys").split(":")
-    config['uftpd.enforce_os_gids'] =  os.getenv("UFTP_ENFORCE_OS_GIDS", "true").lower() in [ "true", "yes", "1" ]
+    config['uftpd.enforce_os_gids'] = _get_bool("UFTP_ENFORCE_OS_GIDS", "true")
     config['uftpd.use_id_to_resolve_gids'] = True
-    config['LOG_VERBOSE'] = os.getenv("LOG_VERBOSE", "false").lower() in [ "true", "yes", "1" ]
-    config['LOG_SYSLOG'] = os.getenv("LOG_SYSLOG", "true").lower() in [ "true", "yes", "1" ]
-    config['DISABLE_IP_CHECK'] = os.getenv("DISABLE_IP_CHECK", "false").lower() in [ "true", "yes", "1" ]
+    config['LOG_VERBOSE'] = _get_bool("LOG_VERBOSE", "false")
+    config['LOG_SYSLOG'] = _get_bool("LOG_SYSLOG", "true")
+    config['DISABLE_IP_CHECK'] = _get_bool("DISABLE_IP_CHECK", "false")
     config['PORTRANGE'] = configure_portrange()
     config['PAM_MODULE'] = os.getenv("PAM_MODULE", PAM_MODULE)
-    config['OPEN_USER_SESSIONS'] = os.getenv("OPEN_USER_SESSIONS", "0").lower() in ["1", "true"]
+    config['OPEN_USER_SESSIONS'] = _get_bool("OPEN_USER_SESSIONS", "0")
+    config['UFTP_USE_SENDFILE'] = _get_bool("UFTP_USE_SENDFILE", "1")
+
+def _get_bool(param, default_value):
+    return os.getenv(param, default_value).lower() in ["1", "yes", "true"]
 
 def configure_portrange():
     rangespec = os.getenv("PORT_RANGE", None)
@@ -132,10 +137,9 @@ def _do_add_job(request: dict, config: dict, LOG: Logger):
     user = request['user']
     limit = config['MAX_CONNECTIONS']
     user_session_counts = config['_JOB_COUNTER']
-    counter = user_session_counts.get(user, Utils.Counter())
+    counter:Utils.Counter = user_session_counts.get(user, Utils.Counter())
     user_session_counts[user]=counter
-    if counter.increment()==limit:
-        counter.decrement()
+    if counter.get()==limit:
         raise Exception("Too many active sessions for '%s' - server limit is %s" % (user, limit))
     secret = request['secret']
     job_map = config['job_map']
@@ -151,9 +155,11 @@ def _do_add_job(request: dict, config: dict, LOG: Logger):
     request['_LOCK'] = threading.Lock()
     request['_EXPIRES'] = int(time.time())+_REQUEST_LIFETIME
     request['_PIDS'] = []
+    request['_PERSISTENT'] = request.get("persistent", "0").lower() == "true"
     if request.get('key', None) is not None:
          if not config['_CRYPTOGRAPHY_AVAILABLE']:
              raise Exception("Encrypted connections are not supported by this UFTPD server.")
+    counter.increment()
     job_map[secret] = request
     LOG.info("New transfer request for '%s' groups: %s" % (user, str(group)))
 

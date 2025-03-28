@@ -242,6 +242,10 @@ The following variables can be defined in the configuration file (uftpd.conf):
                     a NAT firewall and the public address is different from
                     the address(es) the server has bound to
 
+  DISABLE_IPv6    : (optional) if the host addresses (CMD_HOST and SERVER_HOST) denote
+                    addresses that support both Ipv4 and IPv6, the server will enable both
+                    protocols. To explicitely disable the IPv6 support, set this to "true"
+
   SSL_CONF        : File containing SSL settings for the command port
 
   ACL             : File containing the list of server DNs that are allowed 
@@ -271,7 +275,7 @@ The following variables can be defined in the configuration file (uftpd.conf):
 
   LOG_SYSLOG       : set to 'false' to print logging output to stdout
 
-As usual if you set the SERVER_HOST to be "0.0.0.0", the server will bind to all the available 
+If you set the SERVER_HOST to be empty ("") or "*", the server will bind to all the available 
 network interfaces.
 
 If possible, use an "internal" interface for the Command socket. If that

@@ -88,12 +88,13 @@ def setup_cmd_server_socket(config: dict, LOG: Logger) -> socket.socket:
                 except:
                     pass
         update_acl(config, LOG)
-    
-    LOG.info("UFTPD Command server socket started on %s:%s" % (host, port))
-    LOG.info("SSL enabled: %s" % ssl_mode)
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
+    addr = (host, port)
+    fam = "IPv4"
+    if _check_ipv6_support(host, port, config):
+        fam = "IPv6/IPv4"
+        server = socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
+    else:
+        server = socket.create_server(addr, reuse_port=True)
     if ssl_mode:
         server = setup_ssl(config, server, LOG, True)
     else:
@@ -103,6 +104,8 @@ def setup_cmd_server_socket(config: dict, LOG: Logger) -> socket.socket:
         LOG.info("*****   On production systems you should enable SSL!")
         LOG.info("*****   Consult the UFTPD manual for details.")
         LOG.info("*****")
+    LOG.info("UFTPD Command server socket (%s) started on %s:%s" % (fam, server.getsockname()[0], port))
+    LOG.info("SSL enabled: %s" % ssl_mode)
     return server
 
 def accept_command(server: socket.socket, config: dict, LOG: Logger) -> Connector:
@@ -116,7 +119,7 @@ def accept_command(server: socket.socket, config: dict, LOG: Logger) -> Connecto
 
     while True:
         try:
-            (auth, (auth_host, _x)) = server.accept()
+            (auth, peer_address) = server.accept()
         except EnvironmentError as e:
             if e.errno != errno.EINTR:
                 LOG.error("Error waiting for new connection: " + str(e))
@@ -127,6 +130,11 @@ def accept_command(server: socket.socket, config: dict, LOG: Logger) -> Connecto
                 update_acl(config, LOG)
                 verify_peer(config, auth, LOG)
             except EnvironmentError as e:
+                auth_host = "(n/a)"
+                try:
+                    auth_host = peer_address[0]
+                except TypeError:
+                    pass
                 LOG.error("Error verifying connection from %s : %s" % (
                     auth_host, str(e)))
                 close_quietly(auth)
@@ -147,11 +155,14 @@ def setup_ftp_server_socket(config: dict, LOG: Logger) -> socket.socket:
 
     host = config['SERVER_HOST']
     port = config['SERVER_PORT']
-
-    LOG.info("UFTPD Listener server socket started on %s:%s" % (host, port))
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind((host, port))
+    addr = (host, port)
+    fam = "IPv4"
+    if _check_ipv6_support(host,port,config):
+        fam = "IPv6/IPv4"
+        server = socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
+    else:
+        server = socket.create_server(addr, reuse_port=True)
+    LOG.info("UFTPD Listener server socket (%s) started on %s:%s" % (fam, server.getsockname()[0], port))
     return server
 
 
@@ -162,7 +173,7 @@ def accept_ftp(server: socket.socket, LOG: Logger) -> Connector:
 
     while True:
         try:
-            (client, (_x, _)) = server.accept()
+            (client, _peer_addr) = server.accept()
         except EnvironmentError as e:
             if e.errno != errno.EINTR:
                 LOG.error("Error waiting for new connection: " + str(e))
@@ -172,13 +183,10 @@ def accept_ftp(server: socket.socket, LOG: Logger) -> Connector:
         return Connector(client,LOG)
 
 
-def setup_data_server_socket(host="0.0.0.0", port_range=(0,-1,-1)) -> socket.socket:
+def setup_data_server_socket(host, port_range=(0,-1,-1), enable_ipv6=True) -> socket.socket:
     """
     Return listener socket for data connections
     """
-
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     port = port_range[0]
     use_port_range = port > 0
     if use_port_range:
@@ -189,9 +197,12 @@ def setup_data_server_socket(host="0.0.0.0", port_range=(0,-1,-1)) -> socket.soc
         max_attempts = 1
     attempts = 0
     while attempts<max_attempts:
+        addr = (host, port)
         try:
-            server.bind((host, port))
-            return server
+            if enable_ipv6:
+                return socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
+            else:
+                return socket.create_server(addr, reuse_port=True)
         except Exception as e:
             attempts+=1
             if use_port_range:
@@ -209,8 +220,9 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
     attempts = 0
     while attempts < 3:
         try:
-            (client, (client_host, _)) = server.accept()
+            (client, address) = server.accept()
             if expected_client is not None:
+                client_host=address[0]
                 if client_host!=expected_client:
                     raise Exception("Rejecting connection from unexpected host %s - expected %s" % (client_host, expected_client))
             configure_socket(client)
@@ -218,3 +230,14 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
         except EnvironmentError as e:
             LOG.error(e)
             attempts+=1
+
+def _check_ipv6_support(host: str, port: int, config: dict) -> bool:
+    enable_ipv6 = not config.get('DISABLE_IPv6', False)
+    supports_ipv6 = len(host)==0 or host=="*"
+    if supports_ipv6:
+        return True
+    for addrinfo in socket.getaddrinfo(host, port):
+        if addrinfo[0]==socket.AF_INET6:
+            supports_ipv6 = True
+            break
+    return enable_ipv6 and supports_ipv6

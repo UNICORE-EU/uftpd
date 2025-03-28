@@ -1,6 +1,6 @@
 """ Helpers for dealing with control and data connections """
 
-from socket import socket, SHUT_RDWR
+from socket import socket, SHUT_RDWR, AF_INET6
 from Log import Logger
 
 class Connector(object):
@@ -15,13 +15,16 @@ class Connector(object):
             self._input = client.makefile("r")
             self._output = client.makefile("w")
         self.LOG = LOG
-        self.conntype = conntype;
+        self.conntype = conntype
 
     def client_ip(self):
         return self.client.getpeername()[0]
 
     def my_ip(self):
         return self.client.getsockname()[0]
+
+    def is_ipv6(self):
+        return self.client.family==AF_INET6
 
     def info(self):
         return "%s connection with %s" % (self.conntype, self.client.getpeername())
@@ -70,15 +73,16 @@ class Connector(object):
     def write(self, data, do_flush=True):
         """ Write all the data to remote channel """
         to_write = len(data)
-        write_offset = 0
+        total = 0
         while to_write > 0:
-            written = self._output.write(data[write_offset:])
+            written = self._output.write(data[total:])
             if written is None:
                 written = 0
-            write_offset += written
+            total += written
             to_write -= written
         if do_flush:
             self._output.flush()
+        return total
 
     def read(self, length):
         """ Read data from remote channel """

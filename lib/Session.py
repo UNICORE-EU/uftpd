@@ -1,4 +1,4 @@
-import hashlib, fnmatch, os.path, pathlib, shlex, sys, time
+import hashlib, fnmatch, os, os.path, pathlib, shlex, sys, time
 from base64 import b64decode
 
 from Connector import Connector
@@ -13,8 +13,8 @@ class Session(object):
     ACTION_CONTINUE = 0
     ACTION_RETRIEVE = 1
     ACTION_STORE = 2
-    ACTION_SYNC_TO_CLIENT = 3;
-    ACTION_SYNC_TO_SERVER = 4;
+    ACTION_SYNC_TO_CLIENT = 3
+    ACTION_SYNC_TO_SERVER = 4
     ACTION_OPEN_SOCKET = 5
     ACTION_CLOSE_DATA = 7
     ACTION_SEND_HASH = 8
@@ -116,7 +116,7 @@ class Session(object):
                                 "SHA-1": hashlib.sha1,
                                 "SHA-256": hashlib.sha256,
                                 "SHA-512": hashlib.sha512}
-
+    
     def init_functions(self):
         self.functions = {
             "BYE": self.shutdown,
@@ -156,8 +156,8 @@ class Session(object):
             "SEND-FILE": self.rcp_send_file,
             "RECEIVE-FILE": self.rcp_receive_file,
             "RCP-STATUS": self.rcp_status,
-            "RCP-ABORT": self.rcp_abort
-        }
+            "RCP-ABORT": self.rcp_abort,
+       }
 
     def assert_permission(self, requested):
         if self.access_level < requested:
@@ -179,6 +179,8 @@ class Session(object):
         if not os.path.isabs(_p):
             _p = self.current_dir+"/"+_p
         p = os.path.normpath(_p)
+        while p.startswith('//'):
+            p = p[1:]
         if not p.startswith(self.basedir):
             raise Exception("Forbidden: %s not in %s"%(p, self.basedir))
         return p
@@ -315,8 +317,10 @@ class Session(object):
         if len(self.data_connectors) == self.num_streams:
             self.LOG.debug("Closing (forgotten?) data connection(s)")
             self.close_data()
-        my_host = self.job['SERVER_HOST']
-        with Server.setup_data_server_socket(my_host, self.portrange) as server_socket:
+        my_host = self.advertise_host if self.advertise_host else self.job['SERVER_HOST']
+        enable_ipv6 = self.control.is_ipv6()
+        self.LOG.debug("Opening data connection listener on %s, ipv6=%s"% (my_host, enable_ipv6))
+        with Server.setup_data_server_socket(my_host, self.portrange, enable_ipv6) as server_socket:
             my_port = server_socket.getsockname()[1]
             if epsv:
                 msg = "229 Entering Extended Passive Mode (|||%s|)" % my_port
@@ -736,31 +740,37 @@ class Session(object):
             self.post_transfer(send226=False)
             duration = int(time.time()) - start_time
             self.log_usage(True, total, duration, 1, self.hash_algorithm)
+    
+    def _use_sendfile(self):
+        sf_disabled = self.co
+        limit_rate = self.rate_limit > 0
+        encrypt = self.key is not None
+        return (type(self.data) is Connector) and not (limit_rate or encrypt or self.compress or sf_disabled)
 
     def send_data(self):
-        with open(self.file_path, "rb", buffering = self.FILE_READ_BUFFERSIZE) as f:
-            limit_rate = self.rate_limit > 0
-            f.seek(self.offset)
-            to_send = self.number_of_bytes
-            total = 0
-            start_time = int(time.time())
-            encrypt = self.key is not None
-            while total<to_send:
-                length = min(self.BUFFER_SIZE, to_send-total)
-                data = f.read(length)
-                if len(data)==0:
-                    break
-                total = total + len(data)
-                self.data.write(data)
-                if limit_rate:
-                    self.control_rate(total, start_time)
-            if encrypt or self.compress:
-                self.data.close()
-            self.post_transfer()
-            if not self.KEEP_ALIVE:
-                self.close_data()
-            duration = int(time.time()) - start_time
-            self.log_usage(True, total, duration)
+        to_send = self.number_of_bytes
+        total = 0
+        start_time = int(time.time())
+        if self._use_sendfile():
+            self.LOG.debug("Using sendfile()")
+            with open(self.file_path, "rb") as f:
+                f.seek(self.offset)
+                while total<to_send:
+                    _sent = os.sendfile(self.data.fd(), f.fileno(), offset=None, count=to_send-total)
+                    if _sent==0:
+                        break
+                    total = total + _sent
+        else:
+            with open(self.file_path, "rb", buffering = self.FILE_READ_BUFFERSIZE) as f:
+                f.seek(self.offset)
+                total = self.copy_data(f, self.data, to_send)
+        if self.compress or (self.key is not None):
+            self.data.close()
+        self.post_transfer()
+        if not self.KEEP_ALIVE:
+            self.close_data()
+        duration = int(time.time()) - start_time
+        self.log_usage(True, total, duration)
 
     def recv_data(self):
         if self.archive_mode:
@@ -769,8 +779,7 @@ class Session(object):
             self.recv_normal_data()
 
     def recv_normal_data(self):
-        _mode = "r+b"
-        with open(self.file_path, _mode, buffering = self.FILE_WRITE_BUFFERSIZE) as f:
+        with open(self.file_path, "r+b", buffering = self.FILE_WRITE_BUFFERSIZE) as f:
             if not self.have_range:
                 try:
                     f.truncate(0)
@@ -837,21 +846,18 @@ class Session(object):
         total = 0
         limit_rate = self.rate_limit > 0
         start_time = int(time.time())
-        
         while total<num_bytes:
             length = min(self.BUFFER_SIZE, num_bytes-total)
-            data = reader.read(length)
-            if len(data)==0:
+            _data = reader.read(length)
+            if len(_data)==0:
                 break
-            to_write = len(data)
+            to_write = len(_data)
             write_offset = 0
             while(to_write>0):
-                written = target.write(data[write_offset:])
-                if written is None:
-                    written = 0
+                written = target.write(_data[write_offset:])
                 write_offset += written
                 to_write -= written
-            total = total + len(data)
+            total = total + len(_data)
             if limit_rate:
                 self.control_rate(total, start_time)
         return total
@@ -918,11 +924,12 @@ class Session(object):
             _crypt = "True (%s)" % self.algo
         else:
             _crypt = "False"
-        self.LOG.info("Processing UFTP session for <%s : %s : %s>, initial_dir='%s', base='%s', encrypted=%s, compress=%s, ratelimit=%s" % (
+        ip_family = "IPv6" if self.control.is_ipv6() else "IPv6"
+        self.LOG.info("Processing UFTP session for <%s : %s : %s>, initial_dir='%s', base='%s', encrypted=%s, compress=%s, ratelimit=%s, persistent=%s" % (
             self.job['user'], self.job['group'],
             self.control.client_ip(),
             self.current_dir, self.basedir,
-            _crypt, self.compress, _lim
+            _crypt, self.compress, _lim, self.job['_PERSISTENT']
         ))
         while True:
             msg = self.control.read_line()
@@ -962,7 +969,7 @@ class Session(object):
                     elif mode==Session.ACTION_END:
                         break
                 except Exception as e:
-                    self.control.write_message("500 Error processing command: %s" % str(e))
+                    self.control.write_message("500 Error processing command '%s': %s" % (cmd, str(e)))
                     self.LOG.log_exception()
             else:
                 self.control.write_message("500 Command not implemented.")

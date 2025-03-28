@@ -4,7 +4,7 @@ import threading
 from Log import Logger
 import BecomeUser, Connector, PAM, Protocol, Server, Session
 
-def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, cmd_server):
+def create_session(connector: Connector.Connector, config: dict, LOG: Logger, ftp_server, cmd_server):
     try:
         LOG.debug("Processing %s" % connector.info())
         job = Protocol.establish_connection(connector, config)
@@ -25,6 +25,7 @@ def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, 
                     break
             if not verified:
                 raise Exception("Rejecting connection for '%s' from %s, allowed: %s" % (job['user'], peer, str(client_ips)))
+        job['SERVER_HOST'] = connector.my_ip()
         LOG.info("Established %s for '%s'" % (connector.info(), job['user']))
     except Exception as e:
         connector.write_message("500 Error establishing connection: %s" % str(e))
@@ -37,6 +38,10 @@ def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, 
     counter = user_job_counts.get(user)
     with job['_LOCK']:
         if len(job['_PIDS'])>0:
+            if not job["_PERSISTENT"]:
+                connector.write_message("500 Session for these credentials is already running")
+                connector.close()
+                return
             num = counter.increment()
             if num>limit:
                 counter.decrement()
@@ -55,7 +60,7 @@ def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, 
     #
     # child - cleanup, drop privileges and launch session processing
     #
-    pam_enabled =  config.get('OPEN_USER_SESSIONS', False)
+    pam_enabled = config.get('OPEN_USER_SESSIONS', False)
     pam_module = config.get('PAM_MODULE', PAM.PAM_MODULE)
     try:
         LOG.reinit()
@@ -75,7 +80,6 @@ def create_session(connector: Connector, config: dict, LOG: Logger, ftp_server, 
         job['MAX_STREAMS'] = config['MAX_STREAMS']
         job['compress'] = job.get("compress", "false").lower()=="true"
         job['PORTRANGE'] = config.get("PORTRANGE", (0, -1, -1))
-        job['SERVER_HOST'] = config['SERVER_HOST']
         job['ADVERTISE_HOST'] = config.get("ADVERTISE_HOST", None)
         session = Session.Session(connector, job, LOG)
         session.run()

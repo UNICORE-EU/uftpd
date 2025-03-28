@@ -1,15 +1,24 @@
-Changelog for the PyUFTPD server
-================================
+Changelog for the UFTPD server
+==============================
 
-[Issue tracker](https://github.com/UNICORE-EU/uftp/issues)
+[Issue tracker](https://github.com/UNICORE-EU/uftpd/issues)
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
-UFTPD 3.4.2 (released MMM dd, 2024)
+UFTPD 3.5.0 (released MMM dd, 2025)
 -----------------------------------
+ - new feature: enable dualstack IPv6/IPv4 support for command and ftp servcers,
+   if the configured hostname supports it, and it is not explicitely disabled
+   via "DISABLE_IPv6=true" in the uftpd.conf
+ - improvement: use empty hostname ("") or hostname = "*" to bind on
+   all interfaces
+ - improvement: use os.sendfile() for (slightly) better performance for GET
  - fix: avoid error messages in log due to PAM close_session call
  - fix: use USER_NAME instead of USER in conf and start script
  - fix: MLST should return error code 550 if file does not exist
+ - fix: don't follow symlinks when setting modification time
+ - fix: the "persistent" flag for sessions was not implemented
+ - minor code cleanup
 
 UFTPD 3.4.1 (released Apr 29, 2024)
 -----------------------------------
@@ -107,4 +116,3 @@ UFTPD 3.0.0 (released Apr 27, 2021)
 KNOWN ISSUES:
  - removed SYNC command (for now)
  - uploading using both multiple TCP streams and compression is not working correctly
-
