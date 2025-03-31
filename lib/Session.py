@@ -1,9 +1,9 @@
-import hashlib, fnmatch, os, os.path, pathlib, shlex, sys, time
-from base64 import b64decode
+import fnmatch, os, os.path, pathlib, shlex, sys, time
 
 from Connector import Connector
 from FileInfo import FileInfo
 from Log import Logger
+from SessionOptions import SessionOptions
 import GzipConnector, PConnector, Protocol, RSync, Server, Transfer
 
 
@@ -73,14 +73,11 @@ class Session(object):
         self.data = None
         self.portrange = job.get("PORTRANGE", (0, -1, -1))
         self.reset_range()
-        self.BUFFER_SIZE = 65536
-        self.FILE_READ_BUFFERSIZE = 16384
-        self.FILE_WRITE_BUFFERSIZE = 16384
-        self.KEEP_ALIVE = False
-        self.archive_mode = False
-        self.num_streams = int(job.get('streams', 1))
-        self.max_streams = job.get('MAX_STREAMS', 1)
-        self.mlsd_directory = None
+        self.options = SessionOptions(max_streams=job.get('MAX_STREAMS', 1),
+                                      rate_limit=int(job.get("rateLimit", "0")))
+        self.options.num_streams = int(job.get('streams', 1))
+        self.options.set_encryption(job.get("key", None), job.get("algo", None))
+        self.options.compress = job.get("compress", False)
         for f in job.get('UFTP_NOWRITE', []):
             if len(f)>0:
                 self.excludes.append(os.environ['HOME'] + "/" + f)
@@ -90,33 +87,8 @@ class Session(object):
         for f in job.get("includes", "").split(":"):
             if len(f)>0:
                 self.includes.append(self.makeabs(f))
-        self.key = job.get("key", None)
-        if self.key is not None:
-            self.key = b64decode(self.key)
-            self.algo = job.get("algo", None)
-            if self.algo is None:
-                if len(self.key) in [16+16, 16+24, 16+32]:
-                    self.algo = "AES"
-                else:
-                    self.algo = "BLOWFISH"
-                    if len(self.key)>56:
-                        raise ValueError("Illegal key length")
-        else:
-            self.algo = "n/a"
-        self.compress = job.get("compress", False)
-        self.rate_limit = 0
         self.sleep_time = 0
-        try:
-            # auth server sends bytes per second
-            self.rate_limit = int(job.get("rateLimit", "0"))
-        except:
-            pass
-        self.hash_algorithm = "MD5"
-        self.hash_algorithms = {"MD5": hashlib.md5,
-                                "SHA-1": hashlib.sha1,
-                                "SHA-256": hashlib.sha256,
-                                "SHA-512": hashlib.sha512}
-    
+
     def init_functions(self):
         self.functions = {
             "BYE": self.shutdown,
@@ -191,38 +163,24 @@ class Session(object):
 
     def syst(self, _):
         self.control.write_message(Protocol._SYSTEM_REPLY)
-        return Session.ACTION_CONTINUE
 
     def feat(self, _):
         self.control.write_message("211-Features:")
         for feat in self._FEATURES:
             self.control.write_message(" %s"  % feat)
-        if self.key is not None:
-            self.control.write_message(" CRYPTED-%s"  % self.algo)
-        feat = "HASH "
-        for f in self.hash_algorithms:
-            feat+=f
-            if f==self.hash_algorithm:
-                feat+="*"
-            if f!="SHA-512":
-                feat+=";"
-        self.control.write_message(" %s" % feat)
+        if self.options.is_encrypt():
+            self.control.write_message(" CRYPTED-%s"  % self.options.algo)
+        self.control.write_message(" HASH %s" % self.options.describe_hash_algorithms)
         self.control.write_message("211 END")
-        return Session.ACTION_CONTINUE
 
     def noop(self, params):
         try:
-            self.num_streams = int(params)
-            if self.num_streams<=self.max_streams:
-                # accepted
-                self.control.write_message("222 Opening %d data connections" % self.num_streams)
-            else:
-                # limited
-                self.num_streams = self.max_streams
-                self.control.write_message("223 Opening %d data connections" % self.max_streams)
+            n = int(params)
+            self.options.num_streams = n
+            retcode = "222" if n==self.options.num_streams else "223"
+            self.control.write_message("%s Opening %d data connections" % (retcode, self.options.num_streams))
         except:
             self.control.write_message("200 OK")
-        return Session.ACTION_CONTINUE
 
     def cwd(self, params):
         self.assert_permission(Session.MODE_INFO)
@@ -234,7 +192,6 @@ class Session(object):
             self.control.write_message("200 OK")
         except OSError as e:
             self.control.write_message("500 Can't cwd to directory: %s" % str(e))
-        return Session.ACTION_CONTINUE
 
     def cdup(self, _):
         if self.current_dir==self.basedir:
@@ -246,44 +203,30 @@ class Session(object):
                 self.control.write_message("200 OK")
             except OSError as e:
                 self.control.write_message("500 Can't cd up: %s" % str(e))
-        return Session.ACTION_CONTINUE
 
     def pwd(self, _):
         self.assert_permission(Session.MODE_INFO)
         self.control.write_message("257 \""+os.getcwd()+"\"")
-        return Session.ACTION_CONTINUE
 
     def mkdir(self, params):
         self.assert_permission(Session.MODE_WRITE)
         path = self.makeabs(params)
-        try:
-            os.mkdir(path)
-            self.control.write_message("257 \"%s\" directory created" % path)
-        except OSError as e:
-            self.control.write_message("500 Can't create directory: %s" % str(e))
-        return Session.ACTION_CONTINUE
+        os.mkdir(path)
+        self.control.write_message("257 \"%s\" directory created" % path)
 
     def rm(self, params):
         self.assert_permission(Session.MODE_FULL)
         _path = self.makeabs(params)
         self.assert_access(_path)
-        try:
-            os.unlink(_path)
-            self.control.write_message("200 OK")
-        except OSError as e:
-            self.control.write_message("500 Can't remove path: %s" % str(e))
-        return Session.ACTION_CONTINUE
+        os.unlink(_path)
+        self.control.write_message("200 OK")
 
     def rmdir(self, params):
         self.assert_permission(Session.MODE_FULL)
         _path = self.makeabs(params)
         self.assert_access(_path)
-        try:
-            os.rmdir(_path)
-            self.control.write_message("200 OK")
-        except OSError as e:
-            self.control.write_message("500 Can't remove path: %s" % str(e))
-        return Session.ACTION_CONTINUE
+        os.rmdir(_path)
+        self.control.write_message("200 OK")
 
     def rename_from(self, params):
         self.assert_permission(Session.MODE_WRITE)
@@ -291,21 +234,15 @@ class Session(object):
         self.assert_access(_path)
         self.rename_from_path = _path
         self.control.write_message("350 File action OK Please send rename-to")
-        return Session.ACTION_CONTINUE
 
     def rename_to(self, params):
         self.assert_permission(Session.MODE_WRITE)
         _path = self.makeabs(params)
         self.assert_access(_path)
         if self.rename_from_path is None:
-                raise Exception("Illegal sequence of FTP commands - must send RNFR first")
-        try:
-            os.rename(self.rename_from_path, _path)
-            self.control.write_message("200 OK")
-        except OSError as e:
-            self.control.write_message("500 Can't rename to: %s" % str(e))
-        self.rename_from_path = None
-        return Session.ACTION_CONTINUE
+            raise Exception("Illegal sequence of FTP commands - must send RNFR first")
+        os.rename(self.rename_from_path, _path)
+        self.control.write_message("200 OK")
 
     def pasv(self, _):
         return self.add_data_connection(epsv=False)
@@ -314,13 +251,11 @@ class Session(object):
         return self.add_data_connection()
 
     def add_data_connection(self, epsv=True):
-        if len(self.data_connectors) == self.num_streams:
-            self.LOG.debug("Closing (forgotten?) data connection(s)")
+        if len(self.data_connectors) == self.options.num_streams:
             self.close_data()
         my_host = self.advertise_host if self.advertise_host else self.job['SERVER_HOST']
-        enable_ipv6 = self.control.is_ipv6()
-        self.LOG.debug("Opening data connection listener on %s, ipv6=%s"% (my_host, enable_ipv6))
-        with Server.setup_data_server_socket(my_host, self.portrange, enable_ipv6) as server_socket:
+        self.LOG.debug("Opening data connection listener on %s"% my_host)
+        with Server.setup_data_server_socket(my_host, self.portrange, self.control.is_ipv6()) as server_socket:
             my_port = server_socket.getsockname()[1]
             if epsv:
                 msg = "229 Entering Extended Passive Mode (|||%s|)" % my_port
@@ -334,10 +269,8 @@ class Session(object):
             _data_connector = Server.accept_data(server_socket, self.LOG, self.control.client_ip())
             self.LOG.debug("Accepted %s" % _data_connector.info())
             self.data_connectors.append(_data_connector)
-            if len(self.data_connectors) == self.num_streams:
+            if len(self.data_connectors) == self.options.num_streams:
                 return Session.ACTION_OPEN_SOCKET
-            else:
-                return Session.ACTION_CONTINUE
 
     def post_transfer(self, send226=True):
         self.reset_range()        
@@ -401,12 +334,11 @@ class Session(object):
         path = self.makeabs(path)
         fi = FileInfo(path)
         if not fi.exists():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         if asFile or not fi.is_dir():
             file_list = [ fi ]
         else:
-            file_list = [ FileInfo(os.path.normpath(os.path.join(path,p))) for p in os.listdir(path)]
+            file_list = [ FileInfo(os.path.normpath(os.path.join(path,p))) for p in os.listdir(path) ]
         self.control.write_message("211- Sending file list")
         for f in file_list:
             try:
@@ -415,7 +347,6 @@ class Session(object):
                 # don't want to fail here
                 pass
         self.control.write_message("211 End of file list")
-        return Session.ACTION_CONTINUE
 
     def mlst(self,params):
         self.assert_permission(Session.MODE_INFO)
@@ -429,19 +360,16 @@ class Session(object):
         self.control.write_message("250- Listing %s" % path)
         self.control.write_message(" %s" % fi.as_mlist())
         self.control.write_message("250 End")
-        return Session.ACTION_CONTINUE
 
     def size(self, params):
         self.assert_permission(Session.MODE_INFO)
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.exists():
-            msg = "500 Directory/file does not exist or cannot be accessed!"
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         else:
-            msg = "213 %s" % fi.size()
-        self.control.write_message(msg)
-        return Session.ACTION_CONTINUE
-        
+            self.control.write_message(msg = "213 %s" % fi.size())
+
     def set_range(self, offset, number_of_bytes):
         self.offset = offset
         self.number_of_bytes = number_of_bytes
@@ -456,8 +384,7 @@ class Session(object):
             local_offset = int(tokens[0])
             last_byte = int(tokens[1])
         except:
-            self.control.write_message("500 RANG argument syntax error")
-            return Session.ACTION_CONTINUE
+            raise ValueError("Argument syntax error")
         if local_offset==1 and last_byte==0:
             response = "350 Resetting range"
             self.reset_range()
@@ -467,18 +394,15 @@ class Session(object):
             self.set_range(local_offset, num_bytes)
             self.have_range = True
         self.control.write_message(response)
-        return Session.ACTION_CONTINUE
 
     def rest(self, params):
         try:
             local_offset = int(params)
         except:
-            self.control.write_message("500 REST argument syntax error")
-            return Session.ACTION_CONTINUE
+            raise ValueError("Argument syntax error")
         self.have_range = False
         self.offset = local_offset
         self.control.write_message("350 Restarting at %s." % local_offset)
-        return Session.ACTION_CONTINUE
 
     def retr(self, params):
         self.assert_permission(Session.MODE_READ)
@@ -486,8 +410,7 @@ class Session(object):
         self.assert_access(path)
         fi = FileInfo(path)
         if not fi.can_read():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         if self.have_range:
             size = self.number_of_bytes
         else:
@@ -506,7 +429,6 @@ class Session(object):
             # or just ALLO:
             self.set_range(0, int(params))
         self.control.write_message("200 OK Will read up to %s bytes from data connection." % self.number_of_bytes)
-        return Session.ACTION_CONTINUE
 
     def stor(self, params):
         self.assert_permission(Session.MODE_WRITE)
@@ -515,12 +437,8 @@ class Session(object):
         if self.number_of_bytes==-1:
             self.number_of_bytes = sys.maxsize
         self.file_path = path
-        try:
-            pathlib.Path(path).touch()
-            self.control.write_message("150 OK")
-        except OSError as e:
-            self.control.write_message("500 Cannot access target file: %s" % str(e))
-            return Session.ACTION_CONTINUE
+        pathlib.Path(path).touch()
+        self.control.write_message("150 OK")
         return Session.ACTION_STORE
 
     def appe(self, params):
@@ -529,11 +447,7 @@ class Session(object):
         self.assert_access(path)
         if self.number_of_bytes==-1:
             self.number_of_bytes = sys.maxsize
-        try:
             self.offset = os.stat(path)['st_size']
-        except OSError as e:
-            self.control.write_message("500 Target file does not exist / is not readable: %s" % str(e))
-            return Session.ACTION_CONTINUE
         self.file_path = path
         self.control.write_message("150 OK")
         return Session.ACTION_STORE
@@ -543,8 +457,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.can_read():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         if self.have_range:
             size = self.number_of_bytes
         else:
@@ -558,8 +471,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.can_read():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         self.file_path = path
         self.control.write_message("200 OK")
         return Session.ACTION_SYNC_TO_CLIENT
@@ -569,8 +481,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.can_read():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         self.file_path = path
         self.control.write_message("200 OK")
         return Session.ACTION_SYNC_TO_SERVER
@@ -580,32 +491,27 @@ class Session(object):
         try:
             path, remote_file, server_spec, passwd = shlex.split(params)
         except ValueError:
-            self.control.write_message("500 Wrong parameter count for SEND-FILE")
-            return Session.ACTION_CONTINUE
+            raise ValueError("Wrong parameter count")
         path = self.makeabs(path)
         fi = FileInfo(path)
         if not fi.can_read():
-            self.control.write_message("500 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise OSError("Directory/file does not exist or cannot be accessed!")
         self.file_path = path
         self.remote_file_spec = (remote_file, server_spec, passwd)
         child_process_id = self.do_launch_transfer(mode="send")
         self.control.write_message("299 OK transfer-process-ID=%s" % child_process_id)
-        return Session.ACTION_CONTINUE
 
     def rcp_receive_file(self, params):
         self.assert_permission(Session.MODE_WRITE)
         try:
             path, remote_file, server_spec, passwd = shlex.split(params)
         except ValueError:
-            self.control.write_message("500 Wrong parameter count for RECEIVE-FILE")
-            return Session.ACTION_CONTINUE
+            raise ValueError("Wrong parameter count")
         path = self.makeabs(path)
         self.file_path = path
         self.remote_file_spec = (remote_file, server_spec, passwd)
         child_process_id = self.do_launch_transfer(mode="receive")
         self.control.write_message("299 OK transfer-process-ID=%s" % child_process_id)
-        return Session.ACTION_CONTINUE
     
     def rcp_status(self, params):
         self.assert_permission(Session.MODE_INFO)
@@ -618,7 +524,6 @@ class Session(object):
         except OSError:
             result = "UNKNOWN"
         self.control.write_message("299 %s" % result)
-        return Session.ACTION_CONTINUE
 
     def rcp_abort(self, params):
         self.assert_permission(Session.MODE_INFO)
@@ -631,7 +536,6 @@ class Session(object):
         except OSError:
             result = "UNKNOWN"
         self.control.write_message("299 %s" % result)
-        return Session.ACTION_CONTINUE
 
     def set_file_mtime(self, params):
         self.assert_permission(Session.MODE_WRITE)
@@ -640,7 +544,6 @@ class Session(object):
         self.assert_access(path)
         self._set_mtime(path, mtime)
         self.control.write_message("213 Modify=%s; %s" % (mtime, target))
-        return Session.ACTION_CONTINUE
 
     def _set_mtime(self, path, mtime):
         st_time = time.mktime(time.strptime(mtime, "%Y%m%d%H%M%S"))
@@ -667,62 +570,57 @@ class Session(object):
                 raise ValueError(f"Not supported: '{key}'")
             reply.append(fact)
         self.control.write_message("213 %s; %s" % (";".join(reply), target))
-        return Session.ACTION_CONTINUE
 
     def switch_type(self, params):
         if "ARCHIVE"==params.strip():
-            self.archive_mode = True
+            self.options.archive_mode = True
         elif "NORMAL"==params.strip():
-            self.archive_mode = False
+            self.options.archive_mode = False
         self.control.write_message("200 OK")
-        return Session.ACTION_CONTINUE        
 
     def set_keep_alive(self, params):
-        self.KEEP_ALIVE = params.lower() in [ "true", "yes", "1" ]
+        self.options.keep_alive = params.lower() in [ "true", "yes", "1" ]
         self.control.write_message("200 OK")
-        return Session.ACTION_CONTINUE
 
     def opts(self, params):
         cmd_tokens = params.split(" ", 2)
-        cmd = cmd_tokens[0].upper()
-        if cmd=="HASH":
-            if(len(cmd_tokens)==2):
-                algo = cmd_tokens[1].upper()
-                if algo in self.hash_algorithms:
-                    self.hash_algorithm = algo
-                else:
-                    self.control.write_message("500 Unsupported hash algorithm '%s'" % algo)
-                    return Session.ACTION_CONTINUE
-            self.control.write_message("200 %s" % self.hash_algorithm)
+        option = cmd_tokens[0].upper()
+        if len(cmd_tokens)>1:
+            value = cmd_tokens[1]
+            self.options.set(option, value)
+            self.control.write_message("200 %s=%s" % (option, value))
         else:
-            self.control.write_message("500 OPTS command not understood")
-        return Session.ACTION_CONTINUE
+            self.control.write_message("211-OPTS")
+            for o in self.options.get():
+                self.control.write_message(" %s" % o)
+            self.control.write_message("211 END")
 
     def open_data_socket(self):
-        if self.num_streams == 1:
-            self.BUFFER_SIZE = 65536
-            if self.key is not None:
+        if self.options.num_streams == 1:
+            self.options.BUFFER_SIZE = 65536
+            if self.options.is_encrypt():
                 import CryptUtil
-                self.data = CryptUtil.CryptedConnector(self.data_connectors[0], self.key, self.algo)
+                self.data = CryptUtil.CryptedConnector(self.data_connectors[0], self.options.key, self.options.algo)
             else:
                 self.data = self.data_connectors[0]
-            if self.compress:
+            if self.options.compress:
                 self.data = GzipConnector.GzipConnector(self.data)
         else:
-            self.LOG.debug("Opening parallel data connector with <%d> streams" % self.num_streams)
-            self.BUFFER_SIZE = 16384 # Java version compatibility
-            self.data = PConnector.PConnector(self.data_connectors, self.LOG, self.key, self.algo, self.compress)
+            self.LOG.debug("Opening parallel data connector with <%d> streams" % self.options.num_streams)
+            self.options.BUFFER_SIZE = 16384 # Java version compatibility
+            self.data = PConnector.PConnector(self.data_connectors, self.LOG, self.options.key, self.options.algo, self.options.compress)
+
 
     def send_hash(self):
-        with open(self.file_path, "rb", buffering = self.FILE_READ_BUFFERSIZE) as f:
+        with open(self.file_path, "rb", buffering = self.options.file_read_buffer_size) as f:
             f.seek(self.offset)
             to_send = self.number_of_bytes
             total = 0
             start_time = int(time.time())
             interval_start = start_time
-            md = self.hash_algorithms[self.hash_algorithm]()
+            md = self.options.get_hash_function()
             while total<to_send:
-                length = min(self.BUFFER_SIZE, to_send-total)
+                length = min(self.options.BUFFER_SIZE, to_send-total)
                 data = f.read(length)
                 if len(data)==0:
                     break
@@ -733,19 +631,16 @@ class Session(object):
                     self.control.write_message("213-")
                     interval_start = int(time.time())
             last_byte = max(0,  self.offset+self.number_of_bytes-1)
-            msg = "213 %s %s-%s %s %s" % (self.hash_algorithm,
+            msg = "213 %s %s-%s %s %s" % (self.options.hash_algorithm,
                     self.offset, last_byte,
                     md.hexdigest(), self.file_path)
             self.control.write_message(msg)
             self.post_transfer(send226=False)
             duration = int(time.time()) - start_time
-            self.log_usage(True, total, duration, 1, self.hash_algorithm)
+            self.log_usage(True, total, duration, 1, self.options.hash_algorithm)
     
     def _use_sendfile(self):
-        sf_disabled = self.co
-        limit_rate = self.rate_limit > 0
-        encrypt = self.key is not None
-        return (type(self.data) is Connector) and not (limit_rate or encrypt or self.compress or sf_disabled)
+        return (type(self.data) is Connector) and self.options.use_sendfile()
 
     def send_data(self):
         to_send = self.number_of_bytes
@@ -756,30 +651,30 @@ class Session(object):
             with open(self.file_path, "rb") as f:
                 f.seek(self.offset)
                 while total<to_send:
-                    _sent = os.sendfile(self.data.fd(), f.fileno(), offset=None, count=to_send-total)
+                    _sent = os.sendfile(self.data.fileno(), f.fileno(), offset=None, count=to_send-total)
                     if _sent==0:
                         break
                     total = total + _sent
         else:
-            with open(self.file_path, "rb", buffering = self.FILE_READ_BUFFERSIZE) as f:
+            with open(self.file_path, "rb", buffering = self.options.file_read_buffer_size) as f:
                 f.seek(self.offset)
                 total = self.copy_data(f, self.data, to_send)
-        if self.compress or (self.key is not None):
+        if self.options.compress or self.options.is_encrypt():
             self.data.close()
         self.post_transfer()
-        if not self.KEEP_ALIVE:
+        if not self.options.keep_alive:
             self.close_data()
         duration = int(time.time()) - start_time
         self.log_usage(True, total, duration)
 
     def recv_data(self):
-        if self.archive_mode:
+        if self.options.archive_mode:
             self.recv_archive_data()
         else:
             self.recv_normal_data()
 
     def recv_normal_data(self):
-        with open(self.file_path, "r+b", buffering = self.FILE_WRITE_BUFFERSIZE) as f:
+        with open(self.file_path, "r+b", buffering = self.options.file_write_buffer_size) as f:
             if not self.have_range:
                 try:
                     f.truncate(0)
@@ -789,7 +684,7 @@ class Session(object):
             reader = self.get_reader()
             start_time = int(time.time())
             total = self.copy_data(reader, f, self.number_of_bytes)
-        if not self.KEEP_ALIVE:
+        if not self.options.keep_alive:
             self.close_data()
         duration = int(time.time()) - start_time
         self.post_transfer()
@@ -823,13 +718,13 @@ class Session(object):
                     total += self.copy_data(entry_reader, f, sys.maxsize)
             counter+=1
         self.post_transfer()
-        if not self.KEEP_ALIVE:
+        if not self.options.keep_alive:
             self.close_data()
         duration = int(time.time()) - start_time
         self.log_usage(False, total, duration, num_files=counter)
 
     def close_data(self):
-        self.num_streams = 1
+        self.options.num_streams = 1
         try:
             self.data.close()
         except:
@@ -838,16 +733,16 @@ class Session(object):
         self.data = None
 
     def get_reader(self):
-        if self.key is not None:
+        if self.options.is_encrypt():
             self.number_of_bytes = sys.maxsize
         return self.data
 
     def copy_data(self, reader, target, num_bytes):
         total = 0
-        limit_rate = self.rate_limit > 0
+        limit_rate = self.options.rate_limit > 0
         start_time = int(time.time())
         while total<num_bytes:
-            length = min(self.BUFFER_SIZE, num_bytes-total)
+            length = min(self.options.BUFFER_SIZE, num_bytes-total)
             _data = reader.read(length)
             if len(_data)==0:
                 break
@@ -876,11 +771,11 @@ class Session(object):
         pid = Transfer.launch_transfer(self.remote_file_spec, self.file_path, mode,
                                        self.LOG, self.job['user'],
                                        offset=self.offset, length=self.number_of_bytes,
-                                       rate_limit=self.rate_limit,
+                                       rate_limit=self.options.rate_limit,
                                        number_of_streams=self.num_streams,
-                                       key=self.key,
-                                       algo=self.algo,
-                                       compress=self.compress
+                                       key=self.options.key,
+                                       algo=self.options.algo,
+                                       compress=self.options.compress
                                        )
         self.LOG.info("Started server-server transfer, child process PID <%s>" % pid)
         self.reset_range()
@@ -889,7 +784,7 @@ class Session(object):
     def control_rate(self, total, start_time):
         interval = int(time.time() - start_time) + 1
         current_rate = total / interval
-        if current_rate < self.rate_limit:
+        if current_rate < self.options.rate_limit:
             self.sleep_time = int(0.5 * self.sleep_time)
         else:
             self.sleep_time = self.sleep_time + 5
@@ -913,23 +808,21 @@ class Session(object):
 
     def run(self):
         self.init_functions()
-        if self.rate_limit>0:
-            _r = int(self.rate_limit/(1024*1024))
+        if self.options.rate_limit>0:
+            _r = int(self.options.rate_limit/(1024*1024))
             if _r==0:
                 _r = "<1"
             _lim = "%s MB/sec" % _r
         else:
             _lim = "no"
-        if self.key is not None:
-            _crypt = "True (%s)" % self.algo
+        if self.options.is_encrypt():
+            _crypt = "True (%s)" % self.options.algo
         else:
             _crypt = "False"
-        ip_family = "IPv6" if self.control.is_ipv6() else "IPv6"
         self.LOG.info("Processing UFTP session for <%s : %s : %s>, initial_dir='%s', base='%s', encrypted=%s, compress=%s, ratelimit=%s, persistent=%s" % (
-            self.job['user'], self.job['group'],
-            self.control.client_ip(),
+            self.job['user'], self.job['group'], self.control.client_ip(),
             self.current_dir, self.basedir,
-            _crypt, self.compress, _lim, self.job['_PERSISTENT']
+            _crypt, self.options.compress, _lim, self.job['_PERSISTENT']
         ))
         while True:
             msg = self.control.read_line()

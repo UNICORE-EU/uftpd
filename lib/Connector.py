@@ -17,6 +17,9 @@ class Connector(object):
         self.LOG = LOG
         self.conntype = conntype
 
+    def fileno(self):
+        return self.client.fileno()
+
     def client_ip(self):
         return self.client.getpeername()[0]
 

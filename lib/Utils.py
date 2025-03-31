@@ -53,4 +53,4 @@ class Counter(object):
         with self.lock:
             self.num-=1
             return self.num
-    
+

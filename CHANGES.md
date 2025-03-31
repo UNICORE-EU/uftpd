@@ -12,13 +12,15 @@ UFTPD 3.5.0 (released MMM dd, 2025)
    via "DISABLE_IPv6=true" in the uftpd.conf
  - improvement: use empty hostname ("") or hostname = "*" to bind on
    all interfaces
- - improvement: use os.sendfile() for (slightly) better performance for GET
+ - improvement: make some parameters settable via the FTP control channel
+   (e.g. file read/write buffer size)
+ - improvement: optionally use os.sendfile() for GET
  - fix: avoid error messages in log due to PAM close_session call
  - fix: use USER_NAME instead of USER in conf and start script
  - fix: MLST should return error code 550 if file does not exist
  - fix: don't follow symlinks when setting modification time
  - fix: the "persistent" flag for sessions was not implemented
- - minor code cleanup
+ - code cleanup
 
 UFTPD 3.4.1 (released Apr 29, 2024)
 -----------------------------------
