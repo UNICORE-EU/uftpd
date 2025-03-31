@@ -232,12 +232,12 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
             attempts+=1
 
 def _check_ipv6_support(host: str, port: int, config: dict) -> bool:
-    enable_ipv6 = not config.get('DISABLE_IPv6', False)
-    supports_ipv6 = len(host)==0 or host=="*"
-    if supports_ipv6:
+    disable_ipv6 = config.get('DISABLE_IPv6', False)
+    if disable_ipv6:
+        return False
+    if len(host)==0 or host=="*":
         return True
     for addrinfo in socket.getaddrinfo(host, port):
         if addrinfo[0]==socket.AF_INET6:
-            supports_ipv6 = True
-            break
-    return enable_ipv6 and supports_ipv6
+            return True
+    return False
