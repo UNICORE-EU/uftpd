@@ -5,10 +5,10 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
-UFTPD 3.5.0 (released MMM dd, 2025)
+UFTPD 3.5.0 (released July dd, 2025)
 -----------------------------------
  - new feature: enable dualstack IPv6/IPv4 support for command and ftp servcers,
-   if the configured hostname supports it, and it is not explicitely disabled
+   if the configured hostname supports it, and it is not explicitly disabled
    via "DISABLE_IPv6=true" in the uftpd.conf
  - improvement: use empty hostname ("") or hostname = "*" to bind on
    all interfaces
@@ -20,6 +20,8 @@ UFTPD 3.5.0 (released MMM dd, 2025)
  - fix: MLST should return error code 550 if file does not exist
  - fix: don't follow symlinks when setting modification time
  - fix: the "persistent" flag for sessions was not implemented
+ - fix: archive mode creates missing intermediate directories
+ - fix: more consistent path handling and path comparisons
  - code cleanup
 
 UFTPD 3.4.1 (released Apr 29, 2024)

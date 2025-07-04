@@ -36,7 +36,7 @@ def setup_config(config: dict):
     config['CMD_PORT'] = int(os.getenv("CMD_PORT", "64435"))
     config['SERVER_HOST'] = os.getenv("SERVER_HOST", "localhost")
     config['SERVER_PORT'] = int(os.getenv("SERVER_PORT", "64434"))
-    config['DISABLE_IPv6'] = _get_bool("UFTP_6", "0")
+    config['DISABLE_IPv6'] = _get_bool("DISABLE_IPv6", "0")
     config['ADVERTISE_HOST'] = os.getenv("ADVERTISE_HOST", None)
     config['SSL_CONF'] = os.getenv("SSL_CONF", None)
     config['ACL'] = os.getenv("ACL", "conf/uftpd.acl")
@@ -276,7 +276,7 @@ def main():
         import CryptUtil
         config['_CRYPTOGRAPHY_AVAILABLE'] = True
     except:
-        LOG.info("Warning: Cryptography is not available.")
+        LOG.info("Warning: cryptography support via package 'Crypto' is not available - you might want to 'pip install pycryptodome'.")
         config['_CRYPTOGRAPHY_AVAILABLE'] = False
     process(cmd_server, config, LOG)
     return 0

@@ -3,7 +3,7 @@ import fnmatch, os, os.path, pathlib, shlex, sys, time
 from Connector import Connector
 from FileInfo import FileInfo
 from Log import Logger
-from SessionOptions import SessionOptions
+from SessionUtils import SessionOptions, UFTPError, normalize_path
 import GzipConnector, PConnector, Protocol, RSync, Server, Transfer
 
 
@@ -58,10 +58,10 @@ class Session(object):
             # clients won't be able to go "up" from there
             if not os.path.isabs(_dirname):
                 _dirname = os.path.join(_home, _dirname)
-            self.basedir = os.path.normpath(_dirname)
+            self.basedir = normalize_path(_dirname)
             self.current_dir = self.basedir
         if not os.path.isdir(self.current_dir):
-            raise IOError("No such directory: %s" % self.current_dir)
+            raise UFTPError("No such directory: %s" % self.current_dir, 550)
         os.chdir(self.basedir)
         self.access_level = self.MODE_FULL
         _acc = job.get("access-permissions", "FULL")
@@ -133,28 +133,26 @@ class Session(object):
 
     def assert_permission(self, requested):
         if self.access_level < requested:
-            raise Exception("Access denied")
+            raise UFTPError("Access denied", 534)
 
     def assert_access(self, path):
         for excl in self.excludes:
             if fnmatch.fnmatch(path, excl):
-                raise Exception("Forbidden: %s excluded via %s" % (path, str(self.excludes)))
+                raise UFTPError("Forbidden: %s excluded via %s" % (path, str(self.excludes)), 534)
         if len(self.includes)==0:
             return
         for incl in self.includes:
             if fnmatch.fnmatch(path, incl):
                 return
-        raise Exception("Forbidden: %s not included in  %s" % (path, str(self.includes)))
+        raise UFTPError("Forbidden: %s not included in  %s" % (path, str(self.includes)), 534)
 
     def makeabs(self, path):
         _p = path.strip()
         if not os.path.isabs(_p):
             _p = self.current_dir+"/"+_p
-        p = os.path.normpath(_p)
-        while p.startswith('//'):
-            p = p[1:]
+        p = normalize_path(_p)
         if not p.startswith(self.basedir):
-            raise Exception("Forbidden: %s not in %s"%(p, self.basedir))
+            raise UFTPError("Forbidden: %s not in %s"%(p, self.basedir), 534)
         return p
 
     def shutdown(self, _):
@@ -170,7 +168,7 @@ class Session(object):
             self.control.write_message(" %s"  % feat)
         if self.options.is_encrypt():
             self.control.write_message(" CRYPTED-%s"  % self.options.algo)
-        self.control.write_message(" HASH %s" % self.options.describe_hash_algorithms)
+        self.control.write_message(" HASH %s" % self.options.hash_algorithms_info())
         self.control.write_message("211 END")
 
     def noop(self, params):
@@ -191,18 +189,18 @@ class Session(object):
             self.current_dir = path
             self.control.write_message("200 OK")
         except OSError as e:
-            self.control.write_message("500 Can't cwd to directory: %s" % str(e))
+            raise UFTPError("Can't cwd to directory: %s" % str(e), 550)
 
     def cdup(self, _):
         if self.current_dir==self.basedir:
-            self.control.write_message("500 Can't cd up, already at base directory")
+            raise UFTPError("Can't cd up, already at base directory", 534)
         else:
             try:
                 os.chdir("..")
                 self.current_dir = os.getcwd()
                 self.control.write_message("200 OK")
             except OSError as e:
-                self.control.write_message("500 Can't cd up: %s" % str(e))
+                raise UFTPError("Can't cd up: %s" % str(e), 500)
 
     def pwd(self, _):
         self.assert_permission(Session.MODE_INFO)
@@ -240,7 +238,7 @@ class Session(object):
         _path = self.makeabs(params)
         self.assert_access(_path)
         if self.rename_from_path is None:
-            raise Exception("Illegal sequence of FTP commands - must send RNFR first")
+            raise UFTPError("Illegal sequence of FTP commands - must send RNFR first", 503)
         os.rename(self.rename_from_path, _path)
         self.control.write_message("200 OK")
 
@@ -299,13 +297,11 @@ class Session(object):
     def send_directory_listing(self, path, mlsd=False, ls_style=False):
         fi = FileInfo(path)
         if not fi.exists() or not fi.is_dir():
-            self.control.write_message("500 Directory does not exist.")
-            return Session.ACTION_CLOSE_DATA
+            raise UFTPError("Directory does not exist.", 550, Session.ACTION_CLOSE_DATA)
         try:
             file_list = os.listdir(path)
         except OSError as e:
-            self.control.write_message("500 Error listing <%s>: %s"% (path, str(e)))
-            return Session.ACTION_CLOSE_DATA
+            raise UFTPError("500 Error listing <%s>: %s"% (path, str(e)), 550, Session.ACTION_CLOSE_DATA)
         self.control.write_message("150 OK")
         for p in file_list:
             try:
@@ -355,8 +351,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.exists():
-            self.control.write_message("550 Directory/file does not exist or cannot be accessed!")
-            return Session.ACTION_CONTINUE
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550, Session.ACTION_CLOSE_DATA)
         self.control.write_message("250- Listing %s" % path)
         self.control.write_message(" %s" % fi.as_mlist())
         self.control.write_message("250 End")
@@ -366,7 +361,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.exists():
-            raise OSError("Directory/file does not exist or cannot be accessed!")
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
         else:
             self.control.write_message(msg = "213 %s" % fi.size())
 
@@ -384,7 +379,7 @@ class Session(object):
             local_offset = int(tokens[0])
             last_byte = int(tokens[1])
         except:
-            raise ValueError("Argument syntax error")
+            raise UFTPError("Argument syntax error", 501)
         if local_offset==1 and last_byte==0:
             response = "350 Resetting range"
             self.reset_range()
@@ -399,7 +394,7 @@ class Session(object):
         try:
             local_offset = int(params)
         except:
-            raise ValueError("Argument syntax error")
+            raise UFTPError("Argument syntax error", 501)
         self.have_range = False
         self.offset = local_offset
         self.control.write_message("350 Restarting at %s." % local_offset)
@@ -410,7 +405,7 @@ class Session(object):
         self.assert_access(path)
         fi = FileInfo(path)
         if not fi.can_read():
-            raise OSError("Directory/file does not exist or cannot be accessed!")
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
         if self.have_range:
             size = self.number_of_bytes
         else:
@@ -457,7 +452,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.can_read():
-            raise OSError("Directory/file does not exist or cannot be accessed!")
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
         if self.have_range:
             size = self.number_of_bytes
         else:
@@ -481,7 +476,7 @@ class Session(object):
         path = self.makeabs(params)
         fi = FileInfo(path)
         if not fi.can_read():
-            raise OSError("Directory/file does not exist or cannot be accessed!")
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
         self.file_path = path
         self.control.write_message("200 OK")
         return Session.ACTION_SYNC_TO_SERVER
@@ -491,11 +486,11 @@ class Session(object):
         try:
             path, remote_file, server_spec, passwd = shlex.split(params)
         except ValueError:
-            raise ValueError("Wrong parameter count")
+            raise UFTPError("Wrong parameter count", 501)
         path = self.makeabs(path)
         fi = FileInfo(path)
         if not fi.can_read():
-            raise OSError("Directory/file does not exist or cannot be accessed!")
+            raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
         self.file_path = path
         self.remote_file_spec = (remote_file, server_spec, passwd)
         child_process_id = self.do_launch_transfer(mode="send")
@@ -506,7 +501,7 @@ class Session(object):
         try:
             path, remote_file, server_spec, passwd = shlex.split(params)
         except ValueError:
-            raise ValueError("Wrong parameter count")
+            raise UFTPError("Wrong parameter count", 501)
         path = self.makeabs(path)
         self.file_path = path
         self.remote_file_spec = (remote_file, server_spec, passwd)
@@ -706,7 +701,7 @@ class Session(object):
             _d = os.path.dirname(pathname)
             try:
                 if not os.path.exists(_d):
-                    os.mkdir(_d)
+                    os.makedirs(_d, exist_ok=True)
             except Exception as e:
                 self.LOG.debug("Error creating directory %s: %s"%(_d, str(e)))
             with open(pathname, "wb") as f:
@@ -715,7 +710,7 @@ class Session(object):
                     # TBD handle links and such?
                     self.LOG.debug("No file returned for %s" % entry.name)
                 else:
-                    total += self.copy_data(entry_reader, f, sys.maxsize)
+                    total += self.copy_data(entry_reader, f, entry.size)
             counter+=1
         self.post_transfer()
         if not self.options.keep_alive:
@@ -772,7 +767,7 @@ class Session(object):
                                        self.LOG, self.job['user'],
                                        offset=self.offset, length=self.number_of_bytes,
                                        rate_limit=self.options.rate_limit,
-                                       number_of_streams=self.num_streams,
+                                       number_of_streams=self.options.num_streams,
                                        key=self.options.key,
                                        algo=self.options.algo,
                                        compress=self.options.compress
@@ -861,8 +856,12 @@ class Session(object):
                         self.do_sync_to_server()
                     elif mode==Session.ACTION_END:
                         break
+                except UFTPError as ue:
+                    self.control.write_message("%s Error processing command '%s': %s" % (ue.error_code, cmd, ue.msg))
+                    if ue.action == Session.ACTION_CLOSE_DATA:
+                        self.close_data()
                 except Exception as e:
                     self.control.write_message("500 Error processing command '%s': %s" % (cmd, str(e)))
                     self.LOG.log_exception()
             else:
-                self.control.write_message("500 Command not implemented.")
+                self.control.write_message("502 Command not implemented.")

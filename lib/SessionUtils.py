@@ -1,5 +1,19 @@
 from base64 import b64decode
 import hashlib
+import os.path
+
+def normalize_path(path: str):
+    p = os.path.normpath(path)
+    # limit number of any leading slashes to "1"
+    while p.startswith("//"):
+        p = p[1:]
+    return p
+
+class UFTPError(Exception):
+    def __init__(self, msg: str, error_code = 500, action=0):
+        self.msg = msg
+        self.error_code = error_code
+        self.action = action
 
 class SessionOptions(object):
     """ Options for a UFTP session.
@@ -19,8 +33,7 @@ class SessionOptions(object):
         self.algo = "n/a"
         self.compress = False
         self._hash_algorithm = "MD5"
-        self.hash_algorithms = ["MD5","SHA-1","SHA-256","SHA-512"]
-        self.hash_functions = {"MD5": hashlib.md5,
+        self.hash_algorithms = {"MD5": hashlib.md5,
                                 "SHA-1": hashlib.sha1,
                                 "SHA-256": hashlib.sha256,
                                 "SHA-512": hashlib.sha512}
@@ -38,7 +51,7 @@ class SessionOptions(object):
             self._num_streams = self.max_streams
 
     def get_hash_function(self):
-        return self.hash_functions[self._hash_algorithm]()
+        return self.hash_algorithms[self._hash_algorithm]()
 
     @property
     def hash_algorithm(self):
@@ -47,18 +60,18 @@ class SessionOptions(object):
     @hash_algorithm.setter
     def hash_algorithm(self, algo: str):
         algo = algo.upper()
-        if not algo in self.hash_algorithms:
+        if not algo in self.hash_algorithms.keys():
             raise ValueError("Unsupported hash algorithm '%s'" % algo)
         self._hash_algorithm = algo
 
-    def describe_hash_algorithms(self):
+    def hash_algorithms_info(self):
         ret = ""
-        for f in self.hash_algorithms:
+        for f in self.hash_algorithms.keys():
             if len(ret)>0:
                 ret+=";"
             ret+=f
             if f==self.hash_algorithm:
-                feat+="*"
+                ret+="*"
         return ret
 
     def set_encryption(self, key: str, algo: str):
@@ -81,8 +94,9 @@ class SessionOptions(object):
         return self.key is not None
 
     def get(self):
-        """ get a list df the (user-modifiable options)"""
+        """ get a list of the (user-modifiable options)"""
         opts = [
+            "RATE_LIMIT %s" % self.rate_limit,
             "FILE_READ_BUFFERSIZE %s" % self.read_buffer_size,
             "FILE_WRITE_BUFFERSIZE %s" % self.write_buffer_size,
             "SENDFILE_ENABLED %s" % self.sendfile_enabled
@@ -96,7 +110,7 @@ class SessionOptions(object):
         elif "FILE_WRITE_BUFFER_SIZE"==option:
             self.file_buffer_buffer_size = self._positive_int(value)
         elif "HASH"==option:
-            self.hash_algorithm=value
+            self.hash_algorithm = value
         elif "SENDFILE_ENABLED"==option:
             self.sendfile_enabled = value.lower() in ["true", "1", "yes"]
         elif "KEEP_ALIVE"==option:
