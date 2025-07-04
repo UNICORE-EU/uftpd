@@ -5,7 +5,7 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
-UFTPD 3.5.0 (released July dd, 2025)
+UFTPD 3.5.0 (released July 04, 2025)
 -----------------------------------
  - new feature: enable dualstack IPv6/IPv4 support for command and ftp servcers,
    if the configured hostname supports it, and it is not explicitly disabled
