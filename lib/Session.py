@@ -264,11 +264,15 @@ class Session(object):
                     adv = self.advertise_host
                 msg = "227 Entering Passive Mode (%s,%d,%d)" % (adv.replace(".",","), (my_port / 256), (my_port % 256))
             self.control.write_message(msg)
-            _data_connector = Server.accept_data(server_socket, self.LOG, self.control.client_ip())
-            self.LOG.debug("Accepted %s" % _data_connector.info())
-            self.data_connectors.append(_data_connector)
-            if len(self.data_connectors) == self.options.num_streams:
-                return Session.ACTION_OPEN_SOCKET
+            try:
+                _data_connector = Server.accept_data(server_socket, self.LOG, self.control.client_ip())
+                self.LOG.debug("Accepted %s" % _data_connector.info())
+                self.data_connectors.append(_data_connector)
+                if len(self.data_connectors) == self.options.num_streams:
+                    return Session.ACTION_OPEN_SOCKET
+            except:
+                self.LOG.error("Timout waiting for client to setup data connection (firewall?) - closing session.")
+                return Session.ACTION_END
 
     def post_transfer(self, send226=True):
         self.reset_range()        

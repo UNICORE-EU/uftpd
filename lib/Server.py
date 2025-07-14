@@ -221,20 +221,15 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
     """ Waits for a data connection
     """
     server.listen(2)
-    attempts = 0
-    while attempts < 3:
-        try:
-            (client, address) = server.accept()
-            if expected_client is not None:
-                client_host=address[0]
-                if client_host!=expected_client:
-                    raise Exception("Rejecting connection from unexpected host %s - expected %s" % (client_host, expected_client))
-            client.settimeout(None)
-            configure_socket(client)
-            return Connector(client, LOG, conntype="DATA", binary_mode=True)
-        except EnvironmentError as e:
-            LOG.error(e)
-            attempts+=1
+    (client, address) = server.accept()
+    if expected_client is not None:
+        client_host=address[0]
+        if client_host!=expected_client:
+            raise Exception("Rejecting connection from unexpected host %s - expected %s" % (client_host, expected_client))
+    client.settimeout(None)
+    configure_socket(client)
+    return Connector(client, LOG, conntype="DATA", binary_mode=True)
+
 
 def _check_ipv6_support(host: str, port: int, config: dict) -> bool:
     disable_ipv6 = config.get('DISABLE_IPv6', False)
