@@ -199,10 +199,14 @@ def setup_data_server_socket(host, port_range=(0,-1,-1), enable_ipv6=True) -> so
     while attempts<max_attempts:
         addr = (host, port)
         try:
+            srv: socket.socket = None
             if enable_ipv6:
-                return socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
+                srv = socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
             else:
-                return socket.create_server(addr, reuse_port=True)
+                srv = socket.create_server(addr, reuse_port=True)
+            # set a timeout to avoid zombie processes if client never connects
+            srv.settimeout(30)
+            return srv
         except Exception as e:
             attempts+=1
             if use_port_range:
@@ -225,6 +229,7 @@ def accept_data(server: socket.socket, LOG: Logger, expected_client: str=None) -
                 client_host=address[0]
                 if client_host!=expected_client:
                     raise Exception("Rejecting connection from unexpected host %s - expected %s" % (client_host, expected_client))
+            client.settimeout(None)
             configure_socket(client)
             return Connector(client, LOG, conntype="DATA", binary_mode=True)
         except EnvironmentError as e:
