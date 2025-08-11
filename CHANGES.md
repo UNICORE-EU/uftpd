@@ -5,6 +5,12 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
+
+UFTPD 3.5.1 (released Aug 11, 2025)
+-----------------------------------
+ - fix: prevent "zombie" sessions if client never connects after
+   sending EPSV
+
 UFTPD 3.5.0 (released July 04, 2025)
 -----------------------------------
  - new feature: enable dualstack IPv6/IPv4 support for command and ftp servcers,
