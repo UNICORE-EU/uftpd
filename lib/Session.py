@@ -245,8 +245,13 @@ class Session(object):
     def pasv(self, _):
         return self.add_data_connection(epsv=False)
 
-    def epsv(self, _):
-        return self.add_data_connection()
+    def epsv(self, params):
+        if "ALL"==params:
+            # "EPSV ALL" from RFC2428
+            self.control.write_message("200 OK")
+            return Session.ACTION_CONTINUE
+        else:
+            return self.add_data_connection()
 
     def add_data_connection(self, epsv=True):
         if len(self.data_connectors) == self.options.num_streams:
@@ -270,8 +275,8 @@ class Session(object):
                 self.data_connectors.append(_data_connector)
                 if len(self.data_connectors) == self.options.num_streams:
                     return Session.ACTION_OPEN_SOCKET
-            except:
-                self.LOG.error("Timout waiting for client to setup data connection (firewall?) - closing session.")
+            except Exception as e:
+                self.LOG.error(f"{repr(e)} waiting for client to setup data connection (firewall?) - closing session.")
                 return Session.ACTION_END
 
     def post_transfer(self, send226=True):
@@ -702,6 +707,13 @@ class Session(object):
                 break
             self.LOG.debug("Processing tar entry: %s length=%s" % (entry.name, entry.size))
             pathname = self.makeabs(os.path.join(self.file_path , entry.name))
+            if entry.isdir():
+                try:
+                    if not os.path.exists(pathname):
+                        os.makedirs(pathname, exist_ok=True)
+                except Exception as e:
+                    self.LOG.debug("Error creating directory %s: %s"%(pathname, str(e)))
+                continue
             _d = os.path.dirname(pathname)
             try:
                 if not os.path.exists(_d):

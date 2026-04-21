@@ -5,6 +5,10 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
+UFTPD 3.5.2 (released Apr 21, 2026)
+-----------------------------------
+ - fix: archive mode did not create directories
+ - fix: some clients (e.g. JDK) send "EPSV ALL" and expect a "200 OK"
 
 UFTPD 3.5.1 (released Aug 11, 2025)
 -----------------------------------

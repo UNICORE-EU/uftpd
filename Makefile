@@ -4,7 +4,7 @@
 #  - building RPM and other packages
 #
 
-VERSION=3.5.1
+VERSION=3.5.2
 RELEASE=1
 MVN=mvn
 
