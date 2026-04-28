@@ -33,7 +33,6 @@ class Session(object):
               "MFF Modify;UNIX.mode;"
               "KEEP-ALIVE",
               "ARCHIVE",
-              "DPC2_LOGIN_OK",
               "UTF-8"
     ]
 
@@ -601,7 +600,6 @@ class Session(object):
 
     def open_data_socket(self):
         if self.options.num_streams == 1:
-            self.options.BUFFER_SIZE = 65536
             if self.options.is_encrypt():
                 import CryptUtil
                 self.data = CryptUtil.CryptedConnector(self.data_connectors[0], self.options.key, self.options.algo)
@@ -611,7 +609,6 @@ class Session(object):
                 self.data = GzipConnector.GzipConnector(self.data)
         else:
             self.LOG.debug("Opening parallel data connector with <%d> streams" % self.options.num_streams)
-            self.options.BUFFER_SIZE = 16384 # Java version compatibility
             self.data = PConnector.PConnector(self.data_connectors, self.LOG, self.options.key, self.options.algo, self.options.compress)
 
 
@@ -624,7 +621,7 @@ class Session(object):
             interval_start = start_time
             md = self.options.get_hash_function()
             while total<to_send:
-                length = min(self.options.BUFFER_SIZE, to_send-total)
+                length = min(self.options.buffer_size, to_send-total)
                 data = f.read(length)
                 if len(data)==0:
                     break
@@ -753,7 +750,7 @@ class Session(object):
         limit_rate = self.options.rate_limit > 0
         start_time = int(time.time())
         while total<num_bytes:
-            length = min(self.options.BUFFER_SIZE, num_bytes-total)
+            length = min(self.options.buffer_size, num_bytes-total)
             _data = reader.read(length)
             if len(_data)==0:
                 break

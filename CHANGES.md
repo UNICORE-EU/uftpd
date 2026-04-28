@@ -5,6 +5,12 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
+UFTPD 3.5.3 (released Apr 28, 2026)
+-----------------------------------
+ - improvement: increase internal data read/write buffer sizes and make them
+   settable by the client
+ - fix: better use of the configured data port range, avoid issues due to SO_REUSEPORT
+
 UFTPD 3.5.2 (released Apr 21, 2026)
 -----------------------------------
  - fix: archive mode did not create directories

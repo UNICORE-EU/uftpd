@@ -5,6 +5,7 @@
 import errno
 from os import stat
 from time import time
+import random
 import socket
 import sys
 
@@ -193,6 +194,7 @@ def setup_data_server_socket(host, port_range=(0,-1,-1), enable_ipv6=True) -> so
         _lower = port_range[1]
         _upper = port_range[2]
         max_attempts = _upper-_lower+1
+        port = port + random.randint(0, _upper - _lower)
     else:
         max_attempts = 1
     attempts = 0
@@ -201,9 +203,9 @@ def setup_data_server_socket(host, port_range=(0,-1,-1), enable_ipv6=True) -> so
         try:
             srv: socket.socket = None
             if enable_ipv6:
-                srv = socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=True)
+                srv = socket.create_server(addr, family=socket.AF_INET6, dualstack_ipv6=True, reuse_port=False)
             else:
-                srv = socket.create_server(addr, reuse_port=True)
+                srv = socket.create_server(addr, reuse_port=False)
             # set a timeout to avoid zombie processes if client never connects
             srv.settimeout(30)
             return srv

@@ -22,9 +22,9 @@ class SessionOptions(object):
     def __init__(self, rate_limit = 0, max_streams = 8):
         self._num_streams = 1
         self.max_streams = max_streams
-        self.BUFFER_SIZE = 65536
-        self.file_read_buffer_size = 16384
-        self.file_write_buffer_size = 16384
+        self._BUFFER_SIZE = 16*65536
+        self.file_read_buffer_size = 16*65536
+        self.file_write_buffer_size = 16*65536
         self.rate_limit = rate_limit
         self.initial_rate_limit = rate_limit
         self.archive_mode = False
@@ -38,6 +38,14 @@ class SessionOptions(object):
                                 "SHA-256": hashlib.sha256,
                                 "SHA-512": hashlib.sha512}
         self.sendfile_enabled = False
+
+    @property
+    def buffer_size(self):
+        if self._num_streams==1:
+            return self._BUFFER_SIZE
+        else:
+            # must maintain compatibility with the Java parallel socket impl
+            return 16384
 
     @property
     def num_streams(self):
@@ -97,9 +105,11 @@ class SessionOptions(object):
         """ get a list of the (user-modifiable options)"""
         opts = [
             "RATE_LIMIT %s" % self.rate_limit,
-            "FILE_READ_BUFFERSIZE %s" % self.read_buffer_size,
-            "FILE_WRITE_BUFFERSIZE %s" % self.write_buffer_size,
-            "SENDFILE_ENABLED %s" % self.sendfile_enabled
+            "FILE_READ_BUFFER_SIZE %s" % self.file_read_buffer_size,
+            "FILE_WRITE_BUFFER_SIZE %s" % self.file_write_buffer_size,
+            "BUFFER_SIZE %s" % self._BUFFER_SIZE,
+            "SENDFILE_ENABLED %s" % self.sendfile_enabled,
+            "HASH %s" % self.hash_algorithm
         ]
         return opts
 
@@ -109,6 +119,8 @@ class SessionOptions(object):
             self.file_read_buffer_size = self._positive_int(value)
         elif "FILE_WRITE_BUFFER_SIZE"==option:
             self.file_buffer_buffer_size = self._positive_int(value)
+        elif "BUFFER_SIZE"==option:
+            self._BUFFER_SIZE = self._positive_int(value)
         elif "HASH"==option:
             self.hash_algorithm = value
         elif "SENDFILE_ENABLED"==option:
