@@ -5,6 +5,13 @@ Changelog for the UFTPD server
 
 [Full documentation](https://uftp-docs.readthedocs.io)
 
+UFTPD 3.6.0 (released mmm dd, 2026)
+-----------------------------------
+ - add option to calculate CRC32 checksum for transferred data
+   (i.e. for each STOR / RETR operation), sending the server-side value to the client
+   via the end-of-transfer message ("226 File transfer complete CRC32:value")
+ - add CRC32 as hash algorithm
+
 UFTPD 3.5.3 (released Apr 28, 2026)
 -----------------------------------
  - improvement: increase internal data read/write buffer sizes and make them

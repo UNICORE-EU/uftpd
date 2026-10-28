@@ -76,6 +76,33 @@ class TestSession(unittest.TestCase):
         session.stat("F .")
         self.assertTrue("testdata" in ms.get_reply())
 
+    def test_list(self):
+        print("\n*** test_list")
+        cwd = os.getcwd()
+        job = {'file': '%s' % cwd+"/", "user": "n/a" }
+        data = MockConnector()
+        ms = MockSocket.MockSocket()
+        control = Connector.Connector(ms, self.LOG)
+        session = Session.Session(control, job, self.LOG)
+        session.data = data
+        session.list(".")
+        self.assertTrue("226" in ms.get_reply())
+        self.assertTrue("README.md" in str(data.get_data()))
+
+    def test_hash(self):
+        print("\n*** test_hash")
+        cwd = os.getcwd()
+        job = {'file': '%s' % cwd+"/", "user": "n/a" }
+        for algo in ["MD5", "CRC32"]:
+            data = MockConnector()
+            ms = MockSocket.MockSocket()
+            control = Connector.Connector(ms, self.LOG)
+            session = Session.Session(control, job, self.LOG)
+            session.data = data
+            session.options.hash_algorithm = algo
+            session.hash("README.md")
+            session.send_hash()
+            print(ms.get_reply())
 
 
 class MockConnector():
@@ -85,6 +112,9 @@ class MockConnector():
 
     def write(self, data, do_flush=True):
         self.data.extend(data)
+
+    def write_message(self, data):
+        self.data.extend(bytes(data+"\n", "UTF-8"))
 
     def flush(self):
         pass
@@ -97,6 +127,9 @@ class MockConnector():
             self.data = bytearray()
             self.pos = 0
         return b
+
+    def get_data(self):
+        return self.read(len(self.data))
 
 if __name__ == '__main__':
     unittest.main()

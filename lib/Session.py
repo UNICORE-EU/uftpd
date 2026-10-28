@@ -87,6 +87,7 @@ class Session(object):
             if len(f)>0:
                 self.includes.append(self.makeabs(f))
         self.sleep_time = 0
+        self.checksum = None
 
     def init_functions(self):
         self.functions = {
@@ -278,10 +279,14 @@ class Session(object):
                 self.LOG.error(f"{repr(e)} waiting for client to setup data connection (firewall?) - closing session.")
                 return Session.ACTION_END
 
-    def post_transfer(self, send226=True):
+    def post_transfer(self, send226=True, sendCRC=False):
         self.reset_range()        
         if send226:
-            self.control.write_message("226 File transfer successful")
+            msg = "226 File transfer successful"
+            if sendCRC and self.checksum:
+                msg += " CRC32:"+self.checksum.value()
+                self.checksum = None
+            self.control.write_message(msg)
 
     def list(self, params):
         self.assert_permission(Session.MODE_INFO)
@@ -321,6 +326,7 @@ class Session(object):
                 else:
                     self.data.write_message(fi.simple_list())
             except Exception as e:
+                print(e)
                 self.LOG.debug("Error listing %s : %s" % (p, str(e)) )
         self.post_transfer()
         return Session.ACTION_CLOSE_DATA
@@ -458,6 +464,7 @@ class Session(object):
     def hash(self, params):
         self.assert_permission(Session.MODE_READ)
         path = self.makeabs(params)
+        print(path)
         fi = FileInfo(path)
         if not fi.can_read():
             raise UFTPError("Directory/file does not exist or cannot be accessed!", 550)
@@ -634,7 +641,7 @@ class Session(object):
             last_byte = max(0,  self.offset+self.number_of_bytes-1)
             msg = "213 %s %s-%s %s %s" % (self.options.hash_algorithm,
                     self.offset, last_byte,
-                    md.hexdigest(), self.file_path)
+                    md.value(), self.file_path)
             self.control.write_message(msg)
             self.post_transfer(send226=False)
             duration = int(time.time()) - start_time
@@ -662,7 +669,7 @@ class Session(object):
                 total = self.copy_data(f, self.data, to_send)
         if self.options.compress or self.options.is_encrypt():
             self.data.close()
-        self.post_transfer()
+        self.post_transfer(sendCRC=True)
         if not self.options.keep_alive:
             self.close_data()
         duration = int(time.time()) - start_time
@@ -688,7 +695,7 @@ class Session(object):
         if not self.options.keep_alive:
             self.close_data()
         duration = int(time.time()) - start_time
-        self.post_transfer()
+        self.post_transfer(sendCRC=True)
         self.log_usage(False, total, duration)
 
     def recv_archive_data(self):
@@ -749,11 +756,17 @@ class Session(object):
         total = 0
         limit_rate = self.options.rate_limit > 0
         start_time = int(time.time())
+        if self.options.checksum:
+            self.checksum = self.options.get_checksum()
+        else:
+            self.checksum = None
         while total<num_bytes:
             length = min(self.options.buffer_size, num_bytes-total)
             _data = reader.read(length)
             if len(_data)==0:
                 break
+            if self.checksum:
+                self.checksum.update(_data)
             to_write = len(_data)
             write_offset = 0
             while(to_write>0):

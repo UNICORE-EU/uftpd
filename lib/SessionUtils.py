@@ -1,6 +1,7 @@
 from base64 import b64decode
 import hashlib
 import os.path
+from zlib import crc32
 
 def normalize_path(path: str):
     p = os.path.normpath(path)
@@ -14,6 +15,13 @@ class UFTPError(Exception):
         self.msg = msg
         self.error_code = error_code
         self.action = action
+
+_hash_algorithms = {"MD5": hashlib.md5,
+                    "SHA-1": hashlib.sha1,
+                    "SHA-256": hashlib.sha256,
+                    "SHA-512": hashlib.sha512,
+                    "CRC32": None }
+
 
 class SessionOptions(object):
     """ Options for a UFTP session.
@@ -33,11 +41,8 @@ class SessionOptions(object):
         self.algo = "n/a"
         self.compress = False
         self._hash_algorithm = "MD5"
-        self.hash_algorithms = {"MD5": hashlib.md5,
-                                "SHA-1": hashlib.sha1,
-                                "SHA-256": hashlib.sha256,
-                                "SHA-512": hashlib.sha512}
         self.sendfile_enabled = False
+        self.checksum = False
 
     @property
     def buffer_size(self):
@@ -59,7 +64,10 @@ class SessionOptions(object):
             self._num_streams = self.max_streams
 
     def get_hash_function(self):
-        return self.hash_algorithms[self._hash_algorithm]()
+        return Hash(self._hash_algorithm)
+
+    def get_checksum(self):
+        return Hash("CRC32")
 
     @property
     def hash_algorithm(self):
@@ -68,13 +76,13 @@ class SessionOptions(object):
     @hash_algorithm.setter
     def hash_algorithm(self, algo: str):
         algo = algo.upper()
-        if not algo in self.hash_algorithms.keys():
+        if not algo in _hash_algorithms.keys():
             raise ValueError("Unsupported hash algorithm '%s'" % algo)
         self._hash_algorithm = algo
 
     def hash_algorithms_info(self):
         ret = ""
-        for f in self.hash_algorithms.keys():
+        for f in _hash_algorithms.keys():
             if len(ret)>0:
                 ret+=";"
             ret+=f
@@ -135,6 +143,9 @@ class SessionOptions(object):
                 self.rate_limit = self._positive_int(value)
             else:
                 self.rate_limit = min(self.initial_rate_limit, r)
+        elif "CHECKSUM"==option:
+            self.checksum = value.lower() in ["true", "1", "yes"]
+
         else:
             raise ValueError("Unknown option '%s'" % option)
 
@@ -143,3 +154,26 @@ class SessionOptions(object):
         if i<0:
             raise ValueError("Need positive value")
         return i
+
+
+class Hash(object):
+    """ common wrapper for functions from hashlib and the crc32 checksum """
+    def __init__(self, algo: str):
+        if "CRC32"== algo:
+            self.md = False
+            self.crc_val = 0
+        else:
+            self.md = True
+            self.hash = _hash_algorithms[algo]()
+
+    def update(self, data: bytes):
+        if self.md:
+            self.hash.update(data)
+        else:
+            self.crc_val = crc32(data, self.crc_val)
+
+    def value(self) -> str:
+        if self.md:
+            return self.hash.hexdigest()
+        else:
+            return str(self.crc_val)
